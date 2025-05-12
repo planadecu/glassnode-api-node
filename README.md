@@ -5,7 +5,7 @@ A Node.js client for the [Glassnode API](https://docs.glassnode.com/).
 ## Installation
 
 ```bash
-yarn add glassnode-api
+npm install glassnode-api
 ```
 
 ## Usage
@@ -47,26 +47,26 @@ Check the `examples` directory for usage examples. To run the examples:
 
 1. Navigate to the examples directory
 2. Create a `.env` file based on `.env.example` with your API key
-3. Install dependencies with `yarn install`
-4. Run an example with `yarn ts-node metadata.ts`
+3. Install dependencies with `npm install`
+4. Run an example with `npx ts-node metadata.ts`
 
 ## Development
 
 ```bash
 # Install dependencies
-yarn install
+npm install
 
 # Build the project
-yarn build
+npm run build
 
 # Run tests
-yarn test
+npm test
 
 # Lint code
-yarn lint
+npm run lint
 
 # Format code
-yarn format
+npm run format
 ```
 
 ## License

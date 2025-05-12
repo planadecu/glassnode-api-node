@@ -14,11 +14,11 @@ This document provides context for Claude when working with this project.
 ## Development Workflow
 
 - Use Node.js v22 (LTS)
-- Use Yarn as package manager
-- Run tests with `yarn test`
-- Lint code with `yarn lint`
-- Format code with `yarn format`
-- Build the project with `yarn build`
+- Use npm as package manager
+- Run tests with `npm test`
+- Lint code with `npm run lint`
+- Format code with `npm run format`
+- Build the project with `npm run build`
 
 ## Coding Standards
 
