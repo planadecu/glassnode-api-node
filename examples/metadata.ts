@@ -21,7 +21,7 @@ async function fetchAssetMetadata() {
     const USDCSchema = z.object({
       symbol: z.literal('USDC'),
       name: z.literal('USDC'),
-      asset_type: z.literal('token'),
+      asset_type: z.literal('TOKEN'),
     });
 
     // Create a refine function that looks for USDC
@@ -30,7 +30,11 @@ async function fetchAssetMetadata() {
       try {
         USDCSchema.parse(usdc);
         console.log('✅ USDC validation successful');
-        console.log(JSON.stringify(usdc, null, 2));
+        // Print 3 first blockchains for USDC
+        console.log('First 3 blockchains for USDC:');
+        usdc.blockchains.slice(0, 3).forEach((blockchain) => {
+          console.log(`  - ${blockchain.blockchain} - ${blockchain.address}`);
+        });
       } catch (error) {
         if (error instanceof z.ZodError) {
           console.error('❌ Schema validation failed:', error.errors);
@@ -84,8 +88,9 @@ async function fetchExchangeBalanceMetadata() {
 
     // Display available parameters
     console.log('\nAvailable parameters:');
+    // Only print the firt 3 values per parameter
     Object.entries(metadata.parameters).forEach(([key, values]) => {
-      console.log(`  ${key}: ${values.join(', ')}`);
+      console.log(`  ${key}: ${values.slice(0, 3).join(', ')}`);
     });
 
     // Display documentation links

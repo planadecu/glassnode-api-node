@@ -43,6 +43,8 @@ export class GlassnodeAPI {
     const url = `${this.apiUrl}${endpoint}?${queryParams}`;
 
     try {
+      console.log('Fetching URL:', url);
+
       const response = await fetch(url);
 
       if (!response.ok) {
@@ -83,7 +85,7 @@ export class GlassnodeAPI {
     metricPath: string,
     params: Record<string, string> = {}
   ): Promise<MetricMetadataResponse> {
-    const response = await this.request('/v1/metadata/metrics', { path: metricPath, ...params });
+    const response = await this.request('/v1/metadata/metric', { path: metricPath, ...params });
     // Validate response with Zod schema
     return MetricMetadataResponseSchema.parse(response);
   }

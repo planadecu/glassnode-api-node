@@ -8,6 +8,7 @@ import {
   BAD_REQUEST_STATUS_TEXT,
   BAD_REQUEST_ERROR,
   STATUS_BAD_REQUEST,
+  METRIC_METADATA_ENDPOINT,
 } from './constants';
 import {
   mockAssetMetadataResponse,
@@ -108,7 +109,7 @@ describe('GlassnodeAPI', () => {
 
       // Verify fetch was called with correct URL
       expect(global.fetch).toHaveBeenCalledWith(
-        `${DEFAULT_API_URL}${METRICS_METADATA_ENDPOINT}?path=%2Fdistribution%2Fbalance_exchanges&api_key=${API_KEY}`
+        `${DEFAULT_API_URL}${METRIC_METADATA_ENDPOINT}?path=%2Fdistribution%2Fbalance_exchanges&api_key=${API_KEY}`
       );
 
       // Verify response is parsed correctly
@@ -137,7 +138,7 @@ describe('GlassnodeAPI', () => {
 
       // Verify fetch was called with correct URL including additional params
       expect(global.fetch).toHaveBeenCalledWith(
-        `${DEFAULT_API_URL}${METRICS_METADATA_ENDPOINT}?path=%2Fdistribution%2Fbalance_exchanges&a=BTC&api_key=${API_KEY}`
+        `${DEFAULT_API_URL}${METRIC_METADATA_ENDPOINT}?path=%2Fdistribution%2Fbalance_exchanges&a=BTC&api_key=${API_KEY}`
       );
 
       // Verify response is parsed correctly
