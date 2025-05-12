@@ -6,10 +6,14 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write      # This gives permission to push to the repository
+      packages: write     # This gives permission to publish packages
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}  # Using the built-in token with write permissions
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -21,8 +25,12 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
-      - run: npm version patch
+      - run: npm version patch --no-git-tag-version  # Skip creating git tag
+      - name: Push changes
+        run: |
+          git add package.json package-lock.json
+          git commit -m "Bump version [skip ci]"
+          git push
       - run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
