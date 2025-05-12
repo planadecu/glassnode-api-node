@@ -1,0 +1,16 @@
+.git
+.github
+.husky
+.gitignore
+.nvmrc
+CLAUDE.md
+eslint.config.mjs
+jest.config.mjs
+prettier.config.mjs
+tsconfig.json
+yarn.lock
+src
+test
+node_modules
+examples/.env
+examples/.env.example

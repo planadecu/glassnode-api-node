@@ -43,8 +43,6 @@ export class GlassnodeAPI {
     const url = `${this.apiUrl}${endpoint}?${queryParams}`;
 
     try {
-      console.log('Fetching URL:', url);
-
       const response = await fetch(url);
 
       if (!response.ok) {
@@ -98,5 +96,19 @@ export class GlassnodeAPI {
     const response = await this.request('/v1/metadata/metrics');
     // Validate response with Zod schema
     return MetricListResponseSchema.parse(response);
+  }
+
+  /**
+   * Call a generic metric
+   * @param metricPath Path of the metric (e.g. /accumulation_balance)
+   * @param params Queried parameters for the metric
+   * @returns Promise resolving to the response data
+   */
+  async callMetric<T>(metricPath: string, params: Record<string, string> = {}): Promise<T> {
+    const response = await this.request(
+      'https://api.glassnode.com/v1/metrics/addresses' + metricPath,
+      params
+    );
+    return response as T;
   }
 }

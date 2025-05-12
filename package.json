@@ -7,14 +7,22 @@
   "files": [
     "dist"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/planadecu/glassnode-api-node.git"
+  },
   "scripts": {
     "build": "tsc",
     "test": "jest",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "prepare": "husky"
+    "prepare": "husky",
+    "prepublishOnly": "npm run build",
+    "preversion": "npm run lint",
+    "version": "npm run format && git add -A src",
+    "postversion": "git push && git push --tags"
   },
-  "author": "",
+  "author": "Jordi Planadecursach",
   "license": "MIT",
   "dependencies": {
     "zod": "^3.24.4"
