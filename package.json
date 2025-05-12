@@ -35,7 +35,9 @@
   "lint-staged": {
     "*.{js,ts,mjs}": [
       "eslint --fix",
-      "prettier --write"
+      "prettier --write",
+      "jest --findRelatedTests --passWithNoTests"
     ]
-  }
+  },
+  "module": "NodeNext"
 }
