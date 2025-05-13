@@ -84,7 +84,7 @@ async function fetchExchangeBalanceMetadata() {
     console.log('✅ Exchange balance metadata:');
     console.log(`  Path: ${metadata.path}`);
     console.log(`  Tier: ${metadata.tier}`);
-    console.log(`  Modified: ${metadata.modified.toISOString()}`);
+    console.log(`  Modified: ${metadata.modified?.toISOString()}`);
 
     // Display available parameters
     console.log('\nAvailable parameters:');
