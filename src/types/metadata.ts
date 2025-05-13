@@ -140,7 +140,10 @@ export const MetricMetadataSchema = z.object({
   /**
    * The last date that the metadata was updated
    */
-  modified: z.number().transform((val) => new Date(val * 1000)),
+  modified: z
+    .number()
+    .optional()
+    .transform((val) => (val ? new Date(val * 1000) : undefined)),
 
   /**
    * Next parameter for the metric

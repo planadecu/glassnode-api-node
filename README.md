@@ -43,12 +43,18 @@ async function getMetrics() {
 
 ## Examples
 
-Check the `examples` directory for usage examples. To run the examples:
+Explore our [detailed examples](./examples/README.md) to learn how to use the Glassnode API client effectively. The examples demonstrate:
+
+- Fetching and validating asset metadata
+- Working with metric lists and metadata
+- Calling metrics with parameters
+
+To run the examples:
 
 1. Navigate to the examples directory
-2. Create a `.env` file based on `.env.example` with your API key
+2. Create a `.env` file with your API key: `GLASSNODE_API_KEY=your_key_here`
 3. Install dependencies with `npm install`
-4. Run an example with `npx ts-node metadata.ts`
+4. Run an example with `npx ts-node metadata.validation.ts`
 
 ## Development
 

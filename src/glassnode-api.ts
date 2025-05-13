@@ -41,6 +41,7 @@ export class GlassnodeAPI {
     });
 
     const url = `${this.apiUrl}${endpoint}?${queryParams}`;
+    console.log('  API call:', url);
 
     try {
       const response = await fetch(url);
@@ -105,10 +106,7 @@ export class GlassnodeAPI {
    * @returns Promise resolving to the response data
    */
   async callMetric<T>(metricPath: string, params: Record<string, string> = {}): Promise<T> {
-    const response = await this.request(
-      'https://api.glassnode.com/v1/metrics/addresses' + metricPath,
-      params
-    );
+    const response = await this.request('/v1/metrics' + metricPath, { ...params, f: 'json' });
     return response as T;
   }
 }
