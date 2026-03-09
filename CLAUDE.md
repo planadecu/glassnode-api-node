@@ -35,6 +35,15 @@ The main class is `GlassnodeAPI` which takes a configuration object:
 - `apiUrl` (optional) - Base URL, defaults to `https://api.glassnode.com`
 - `logger` (optional) - Callback for debug logging (e.g. `console.log`)
 - `fetch` (optional) - Custom fetch function for testing or custom HTTP behavior
+- `maxRetries` (optional) - Number of retries for 429/5xx errors (default 0)
+- `retryDelay` (optional) - Base delay in ms between retries (default 1000, doubles each attempt)
+
+## Versioning
+
+Follow [semver](https://semver.org/). Update `version` in `package.json` and add an entry to `CHANGELOG.md`:
+- **Major** (1.0.0 → 2.0.0): Breaking changes (removed/renamed exports, changed method signatures)
+- **Minor** (0.4.0 → 0.5.0): New features, new methods, new config options (backward-compatible)
+- **Patch** (0.5.0 → 0.5.1): Bug fixes, docs, internal refactors (no API changes)
 
 ## Build Targets
 
