@@ -13,12 +13,12 @@ This document provides context for Claude when working with this project.
 
 ## Development Workflow
 
-- Use Node.js v22 (LTS)
-- Use npm as package manager
-- Run tests with `npm test`
-- Lint code with `npm run lint`
-- Format code with `npm run format`
-- Build the project with `npm run build`
+- Use Node.js v24
+- Use pnpm as package manager
+- Run tests with `pnpm test`
+- Lint code with `pnpm run lint`
+- Format code with `pnpm run format`
+- Build the project with `pnpm run build`
 
 ## Coding Standards
 

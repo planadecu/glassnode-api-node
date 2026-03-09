@@ -1,4 +1,4 @@
 #!/bin/sh
-npm test
-npx lint-staged
-npm run build
+pnpm test
+pnpm dlx lint-staged
+pnpm run build

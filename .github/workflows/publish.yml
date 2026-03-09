@@ -7,31 +7,34 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: write      # This gives permission to push to the repository
-      packages: write     # This gives permission to publish packages
+      contents: write # This gives permission to push to the repository
+      packages: write # This gives permission to publish packages
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}  # Using the built-in token with write permissions
+          token: ${{ secrets.GITHUB_TOKEN }} # Using the built-in token with write permissions
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           registry-url: 'https://registry.npmjs.org'
+          cache: 'pnpm'
       - name: Configure Git
         run: |
           git config --global user.name 'GitHub Actions'
           git config --global user.email 'github-actions@github.com'
-      - run: npm install
-      - run: npm ci
-      - run: npm run build
-      - run: npm test
-      - run: npm version patch --no-git-tag-version  # Skip creating git tag
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm test
+      - run: pnpm version patch --no-git-tag-version # Skip creating git tag
       - name: Push changes
         run: |
-          git add package.json package-lock.json
+          git add package.json pnpm-lock.yaml
           git commit -m "Bump version [skip ci]"
           git push
-      - run: npm publish
+      - run: pnpm publish --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
