@@ -22,7 +22,7 @@ async function runExamples() {
       }
     }
 
-    const result = (await api.callMetric(metric, paramsObject)) as any[];
+    const result = await api.callMetric<Record<string, unknown>[]>(metric, paramsObject);
     console.log(result[0]);
   }
 }
