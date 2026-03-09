@@ -9,10 +9,10 @@ export const METRICS_METADATA_ENDPOINT = '/v1/metadata/metrics';
 export const METRIC_METADATA_ENDPOINT = '/v1/metadata/metric';
 export const METRICS_ENDPOINT = '/v1/metrics';
 
-// Error messages
-export const BAD_REQUEST_STATUS_TEXT = 'Bad Request';
-export const BAD_REQUEST_ERROR = `Bad request: ${BAD_REQUEST_STATUS_TEXT}`;
-
 // HTTP status codes
 export const STATUS_OK = 200;
 export const STATUS_BAD_REQUEST = 400;
+
+// Error messages
+export const BAD_REQUEST_STATUS_TEXT = 'Bad Request';
+export const BAD_REQUEST_ERROR = `API request failed with status ${STATUS_BAD_REQUEST}: ${BAD_REQUEST_STATUS_TEXT}`;

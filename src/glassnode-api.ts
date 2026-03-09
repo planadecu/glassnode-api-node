@@ -1,4 +1,5 @@
 import { GlassnodeConfig, GlassnodeConfigSchema, Logger, FetchFn } from './types/config';
+import { GlassnodeApiError } from './errors';
 import {
   AssetMetadataResponse,
   MetricMetadataResponse,
@@ -51,16 +52,14 @@ export class GlassnodeAPI {
       const response = await this.fetchFn(url);
 
       if (!response.ok) {
-        if (response.status === 400) {
-          throw new Error(`Bad request: ${response.statusText}`);
-        }
-        throw new Error(
-          `API request failed with status ${response.status}: ${response.statusText}`
-        );
+        throw new GlassnodeApiError(response.status, response.statusText);
       }
 
       return await response.json();
     } catch (error) {
+      if (error instanceof GlassnodeApiError) {
+        throw error;
+      }
       if (error instanceof Error) {
         throw new Error(`Glassnode API error: ${error.message}`, { cause: error });
       }

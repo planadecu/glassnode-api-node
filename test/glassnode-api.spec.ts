@@ -1,4 +1,5 @@
 import { GlassnodeAPI } from '../src/glassnode-api';
+import { GlassnodeApiError } from '../src/errors';
 import {
   API_KEY,
   DEFAULT_API_URL,
@@ -282,6 +283,30 @@ describe('GlassnodeAPI', () => {
   describe('error handling', () => {
     it('should reject with empty API key', () => {
       expect(() => new GlassnodeAPI({ apiKey: '' })).toThrow();
+    });
+
+    it('should throw GlassnodeApiError with status and statusText', async () => {
+      const mockResponse = {
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+      };
+
+      // @ts-expect-error: Mocking fetch
+      global.fetch.mockResolvedValue(mockResponse);
+
+      const api = new GlassnodeAPI({ apiKey: API_KEY });
+
+      try {
+        await api.getMetricList();
+        fail('Expected GlassnodeApiError to be thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(GlassnodeApiError);
+        const apiError = error as GlassnodeApiError;
+        expect(apiError.status).toBe(401);
+        expect(apiError.statusText).toBe('Unauthorized');
+        expect(apiError.name).toBe('GlassnodeApiError');
+      }
     });
 
     it('should handle network errors', async () => {
