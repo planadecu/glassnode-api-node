@@ -40,10 +40,14 @@ The main class is `GlassnodeAPI` which takes a configuration object:
 
 ## Versioning
 
-Follow [semver](https://semver.org/). Update `version` in `package.json` and add an entry to `CHANGELOG.md`:
+Follow [semver](https://semver.org/):
 - **Major** (1.0.0 → 2.0.0): Breaking changes (removed/renamed exports, changed method signatures)
 - **Minor** (0.4.0 → 0.5.0): New features, new methods, new config options (backward-compatible)
 - **Patch** (0.5.0 → 0.5.1): Bug fixes, docs, internal refactors (no API changes)
+
+**Before every commit**, you MUST:
+1. Bump `version` in `package.json` (patch, minor, or major as appropriate)
+2. Add a corresponding entry to `CHANGELOG.md` describing the changes
 
 ## Build Targets
 

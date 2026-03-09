@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.0
+
+- Fix `callBulkMetric()` URL from `/v1/bulk/...` to `/v1/metrics/.../bulk`
+- Fix bulk response envelope unwrapping (`{ data }`)
+- Add `is_pit`, `bulk_supported`, `timerange`, and `refs.metric_variant` fields to `MetricMetadata`
+- Remove unused `next_param` field from `MetricMetadata`
+- Fix Zod 4 `error.errors` → `error.issues` in examples
+
+## 0.6.2
+
+- Fix dependency lib issues
+
+## 0.6.1
+
+- CI publish workflow version bump
+
+## 0.6.0
+
+- Add `MetricDescriptors` schema (name, short_name, group, tags, description)
+- Add `descriptors` optional field to `MetricMetadata`
+- Add CI workflow for PRs (lint, test, build)
+- Add npm publish workflow on push to main
+
 ## 0.5.0
 
 - Add configurable retry with exponential backoff (`maxRetries`, `retryDelay`)

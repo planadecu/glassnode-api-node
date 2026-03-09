@@ -85,20 +85,34 @@ async function fetchExchangeBalanceMetadata() {
     console.log(`  Path: ${metadata.path}`);
     console.log(`  Tier: ${metadata.tier}`);
     console.log(`  Modified: ${metadata.modified?.toISOString()}`);
+    console.log(`  Bulk supported: ${metadata.bulk_supported ?? 'N/A'}`);
+
+    // Display time range
+    if (metadata.timerange) {
+      const min = new Date(metadata.timerange.min * 1000).toISOString().split('T')[0];
+      const max = new Date(metadata.timerange.max * 1000).toISOString().split('T')[0];
+      console.log(`  Time range: ${min} to ${max}`);
+    }
 
     // Display available parameters
     console.log('\nAvailable parameters:');
-    // Only print the firt 3 values per parameter
+    // Only print the first 3 values per parameter
     Object.entries(metadata.parameters).forEach(([key, values]) => {
       console.log(`  ${key}: ${values.slice(0, 3).join(', ')}`);
     });
 
-    // Display documentation links
+    // Display documentation links and metric variants
     if (metadata.refs.docs) {
       console.log(`\nDocumentation: ${metadata.refs.docs}`);
     }
     if (metadata.refs.studio) {
       console.log(`Studio: ${metadata.refs.studio}`);
+    }
+    if (metadata.refs.metric_variant) {
+      console.log('Metric variants:');
+      Object.entries(metadata.refs.metric_variant).forEach(([key, value]) => {
+        if (value) console.log(`  ${key}: ${value}`);
+      });
     }
   } catch (error) {
     console.error('Error fetching exchange balance metadata:', error);

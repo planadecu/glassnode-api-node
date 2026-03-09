@@ -163,9 +163,24 @@ export const MetricMetadataSchema = z.object({
     .transform((val) => (val ? new Date(val * 1000) : undefined)),
 
   /**
-   * Next parameter for the metric
+   * Whether this is a point-in-time metric
    */
-  next_param: z.string().optional(),
+  is_pit: z.boolean().optional(),
+
+  /**
+   * Whether bulk queries are supported for this metric
+   */
+  bulk_supported: z.boolean().optional(),
+
+  /**
+   * Available time range for this metric (Unix timestamps)
+   */
+  timerange: z
+    .object({
+      min: z.number(),
+      max: z.number(),
+    })
+    .optional(),
 
   /**
    * Reference links for this metric
@@ -173,6 +188,13 @@ export const MetricMetadataSchema = z.object({
   refs: z.object({
     docs: z.string().optional(),
     studio: z.string().optional(),
+    metric_variant: z
+      .object({
+        base: z.string().optional(),
+        bulk: z.string().optional(),
+        pit: z.string().optional(),
+      })
+      .optional(),
   }),
 
   /**

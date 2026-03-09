@@ -93,7 +93,6 @@ export const mockRawMetricMetadataResponse: MetricMetadataInput = {
     studio: 'https://studio.glassnode.com/charts/distribution.BalanceExchanges',
   },
   modified: 1733829848,
-  next_param: undefined,
 };
 
 // Transformed metric metadata response
