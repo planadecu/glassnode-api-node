@@ -147,7 +147,10 @@ export class GlassnodeAPI {
     metricPath: string,
     params: Record<string, string> = {}
   ): Promise<BulkResponse> {
-    const response = await this.request('/v1/bulk' + metricPath, { ...params, f: 'json' });
-    return BulkResponseSchema.parse(response);
+    const response = await this.request<{ data: BulkResponse }>(
+      '/v1/metrics' + metricPath + '/bulk',
+      { ...params, f: 'json' }
+    );
+    return BulkResponseSchema.parse(response.data);
   }
 }

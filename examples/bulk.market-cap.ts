@@ -9,7 +9,13 @@ const api = new GlassnodeAPI({
 async function getAssetsByMarketCap() {
   console.log('Fetching bulk market cap data...\n');
 
-  const result = await api.callBulkMetric('/market/marketcap_usd');
+  // Bulk endpoints require a=* for all assets and a bounded time range (max ~31 days)
+  const oneDayAgo = Math.floor(Date.now() / 1000) - 86400;
+  const result = await api.callBulkMetric('/market/marketcap_usd', {
+    a: '*',
+    s: String(oneDayAgo),
+    i: '24h',
+  });
 
   if (result.length === 0) {
     console.log('No data returned.');

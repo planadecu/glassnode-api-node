@@ -235,14 +235,14 @@ describe('GlassnodeAPI', () => {
       ];
       const fetchFn = createMockFetch({
         ok: true,
-        json: jest.fn().mockResolvedValue(mockData),
+        json: jest.fn().mockResolvedValue({ data: mockData }),
       });
 
       const api = createApi(fetchFn);
       const result = await api.callBulkMetric('/market/marketcap_usd');
 
       expect(fetchFn).toHaveBeenCalledWith(
-        `${DEFAULT_API_URL}/v1/bulk/market/marketcap_usd?f=json&api_key=${API_KEY}`
+        `${DEFAULT_API_URL}/v1/metrics/market/marketcap_usd/bulk?f=json&api_key=${API_KEY}`
       );
       expect(result).toHaveLength(1);
       expect(result[0].bulk).toHaveLength(2);

@@ -37,7 +37,7 @@ async function fetchAssetMetadata() {
         });
       } catch (error) {
         if (error instanceof z.ZodError) {
-          console.error('❌ Schema validation failed:', error.errors);
+          console.error('❌ Schema validation failed:', error.issues);
         } else {
           throw error;
         }
