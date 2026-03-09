@@ -58,9 +58,9 @@ export class GlassnodeAPI {
       return await response.json();
     } catch (error) {
       if (error instanceof Error) {
-        throw new Error(`Glassnode API error: ${error.message}`);
+        throw new Error(`Glassnode API error: ${error.message}`, { cause: error });
       }
-      throw new Error('Unknown error occurred');
+      throw new Error('Unknown error occurred', { cause: error });
     }
   }
 
