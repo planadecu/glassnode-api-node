@@ -340,4 +340,105 @@ describe('GlassnodeAPI', () => {
       }
     });
   });
+
+  describe('retry logic', () => {
+    it('should retry on 429 and succeed', async () => {
+      const fetchFn = jest
+        .fn()
+        .mockResolvedValueOnce({ ok: false, status: 429, statusText: 'Too Many Requests' })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: jest.fn().mockResolvedValue(mockMetricListResponse),
+        });
+
+      const api = new GlassnodeAPI({
+        apiKey: API_KEY,
+        fetch: fetchFn,
+        maxRetries: 2,
+        retryDelay: 1,
+      });
+      const result = await api.getMetricList();
+
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+      expect(result).toEqual(mockMetricListResponse);
+    });
+
+    it('should retry on 500 and succeed', async () => {
+      const fetchFn = jest
+        .fn()
+        .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: jest.fn().mockResolvedValue(mockMetricListResponse),
+        });
+
+      const api = new GlassnodeAPI({
+        apiKey: API_KEY,
+        fetch: fetchFn,
+        maxRetries: 1,
+        retryDelay: 1,
+      });
+      const result = await api.getMetricList();
+
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+      expect(result).toEqual(mockMetricListResponse);
+    });
+
+    it('should throw after exhausting retries', async () => {
+      const fetchFn = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+      });
+
+      const api = new GlassnodeAPI({
+        apiKey: API_KEY,
+        fetch: fetchFn,
+        maxRetries: 2,
+        retryDelay: 1,
+      });
+
+      await expect(api.getMetricList()).rejects.toThrow(GlassnodeApiError);
+      expect(fetchFn).toHaveBeenCalledTimes(3); // initial + 2 retries
+    });
+
+    it('should not retry on 401', async () => {
+      const fetchFn = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+      });
+
+      const api = new GlassnodeAPI({
+        apiKey: API_KEY,
+        fetch: fetchFn,
+        maxRetries: 2,
+        retryDelay: 1,
+      });
+
+      await expect(api.getMetricList()).rejects.toThrow(GlassnodeApiError);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('should retry on network errors', async () => {
+      const fetchFn = jest
+        .fn()
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: jest.fn().mockResolvedValue(mockMetricListResponse),
+        });
+
+      const api = new GlassnodeAPI({
+        apiKey: API_KEY,
+        fetch: fetchFn,
+        maxRetries: 1,
+        retryDelay: 1,
+      });
+      const result = await api.getMetricList();
+
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+      expect(result).toEqual(mockMetricListResponse);
+    });
+  });
 });

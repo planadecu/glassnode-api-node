@@ -19,6 +19,8 @@ export class GlassnodeAPI {
   private apiUrl: string;
   private logger?: Logger;
   private fetchFn: FetchFn;
+  private maxRetries: number;
+  private retryDelay: number;
 
   /**
    * Create a new Glassnode API client
@@ -32,6 +34,8 @@ export class GlassnodeAPI {
     this.apiUrl = validatedConfig.apiUrl;
     this.logger = validatedConfig.logger as Logger | undefined;
     this.fetchFn = (validatedConfig.fetch as FetchFn) ?? globalThis.fetch;
+    this.maxRetries = validatedConfig.maxRetries;
+    this.retryDelay = validatedConfig.retryDelay;
   }
 
   /**
@@ -41,32 +45,50 @@ export class GlassnodeAPI {
    * @returns Promise resolving to the response data
    */
   private async request<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
-    // Add API key to params
     const queryParams = new URLSearchParams({
       ...params,
       api_key: this.apiKey,
     });
 
     const url = `${this.apiUrl}${endpoint}?${queryParams}`;
-    this.logger?.('API call:', url);
+    let lastError: Error | undefined;
 
-    try {
-      const response = await this.fetchFn(url);
-
-      if (!response.ok) {
-        throw new GlassnodeApiError(response.status, response.statusText);
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      if (attempt > 0) {
+        const delay = this.retryDelay * 2 ** (attempt - 1);
+        this.logger?.(`Retry ${attempt}/${this.maxRetries} after ${delay}ms`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
 
-      return await response.json();
-    } catch (error) {
-      if (error instanceof GlassnodeApiError) {
-        throw error;
+      this.logger?.('API call:', url);
+
+      try {
+        const response = await this.fetchFn(url);
+
+        if (!response.ok) {
+          const error = new GlassnodeApiError(response.status, response.statusText);
+          if (error.isRetryable && attempt < this.maxRetries) {
+            lastError = error;
+            continue;
+          }
+          throw error;
+        }
+
+        return await response.json();
+      } catch (error) {
+        if (error instanceof GlassnodeApiError) {
+          throw error;
+        }
+        if (error instanceof Error) {
+          lastError = error;
+          if (attempt < this.maxRetries) continue;
+          throw new Error(`Glassnode API error: ${error.message}`, { cause: error });
+        }
+        throw new Error('Unknown error occurred', { cause: error });
       }
-      if (error instanceof Error) {
-        throw new Error(`Glassnode API error: ${error.message}`, { cause: error });
-      }
-      throw new Error('Unknown error occurred', { cause: error });
     }
+
+    throw lastError;
   }
 
   /**

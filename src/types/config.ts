@@ -36,6 +36,18 @@ export const GlassnodeConfigSchema = z.object({
    * @default globalThis.fetch
    */
   fetch: z.function().optional(),
+
+  /**
+   * Maximum number of retries for retryable errors (429 and 5xx)
+   * @default 0 (no retries)
+   */
+  maxRetries: z.number().int().nonnegative().default(0),
+
+  /**
+   * Base delay in milliseconds between retries (doubles each attempt)
+   * @default 1000
+   */
+  retryDelay: z.number().int().positive().default(1000),
 });
 
 /**
