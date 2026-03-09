@@ -21,12 +21,14 @@ Before running the examples:
 ### Metadata Validation (`metadata.validation.ts`)
 
 Demonstrates how to:
-- Fetch and validate asset metadata 
+
+- Fetch and validate asset metadata
 - Get a list of available metrics
 - Fetch metadata for specific metrics (exchange balance example)
 - Work with metric parameters
 
 Run with:
+
 ```bash
 npx ts-node metadata.validation.ts
 ```
@@ -34,12 +36,14 @@ npx ts-node metadata.validation.ts
 ### Metric Dumping (`metric.dump.ts`)
 
 Shows how to:
+
 - Fetch a list of all available metrics
 - Get metadata for each metric
 - Call metrics with parameters
 - Process and display the results
 
 Run with:
+
 ```bash
 npx ts-node metric.dump.ts
 ```
@@ -47,6 +51,7 @@ npx ts-node metric.dump.ts
 ## Dependencies
 
 The examples use:
+
 - `dotenv` - For loading environment variables
 - `ts-node` - For running TypeScript files directly
 - `zod` - For schema validation (used in metadata.validation.ts)
@@ -54,8 +59,9 @@ The examples use:
 ## Adding New Examples
 
 To add a new example:
+
 1. Create a new TypeScript file in this directory
 2. Import the Glassnode API client: `import { GlassnodeAPI } from '../src'`
 3. Set up the client with your API key
 4. Implement your example code
-5. Run with `npx ts-node your-example-file.ts` 
+5. Run with `npx ts-node your-example-file.ts`

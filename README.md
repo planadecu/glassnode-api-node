@@ -1,11 +1,39 @@
 # Glassnode API
 
-A Node.js client for the [Glassnode API](https://docs.glassnode.com/).
+A TypeScript client for the [Glassnode API](https://docs.glassnode.com/), supporting both Node.js and browser environments.
 
 ## Installation
 
+### Node.js
+
 ```bash
+# pnpm
+pnpm add glassnode-api
+
+# npm
 npm install glassnode-api
+
+# yarn
+yarn add glassnode-api
+```
+
+### Browser (UMD)
+
+```html
+<script src="https://unpkg.com/glassnode-api/dist/glassnode-api.umd.min.js"></script>
+<script>
+  const api = new GlassnodeAPI.GlassnodeAPI({ apiKey: 'YOUR_API_KEY' });
+</script>
+```
+
+### Browser (ESM)
+
+```html
+<script type="module">
+  import { GlassnodeAPI } from 'https://unpkg.com/glassnode-api/dist/glassnode-api.esm.min.js';
+
+  const api = new GlassnodeAPI({ apiKey: 'YOUR_API_KEY' });
+</script>
 ```
 
 ## Usage
@@ -13,7 +41,6 @@ npm install glassnode-api
 ```typescript
 import { GlassnodeAPI } from 'glassnode-api';
 
-// Create an instance with your API key
 const api = new GlassnodeAPI({
   apiKey: 'YOUR_API_KEY',
   // Optional: Override the API URL
@@ -21,58 +48,63 @@ const api = new GlassnodeAPI({
 });
 
 // Fetch asset metadata
-async function getAssets() {
-  try {
-    const response = await api.getAssetMetadata();
-    console.log(response.data);
-  } catch (error) {
-    console.error('Error fetching asset metadata:', error);
-  }
-}
+const assets = await api.getAssetMetadata();
 
 // Fetch metric metadata
-async function getMetrics() {
-  try {
-    const response = await api.getMetricMetadata();
-    console.log(response.data);
-  } catch (error) {
-    console.error('Error fetching metric metadata:', error);
-  }
-}
+const metric = await api.getMetricMetadata('/distribution/balance_exchanges', { a: 'BTC' });
+
+// Get list of all available metrics
+const metrics = await api.getMetricList();
+
+// Call a metric directly
+const data = await api.callMetric('/market/price_usd_close', { a: 'BTC', s: '1609459200' });
 ```
+
+## API
+
+### `new GlassnodeAPI(config)`
+
+| Parameter | Type     | Required | Description                                            |
+| --------- | -------- | -------- | ------------------------------------------------------ |
+| `apiKey`  | `string` | Yes      | Your Glassnode API key                                 |
+| `apiUrl`  | `string` | No       | API base URL (defaults to `https://api.glassnode.com`) |
+
+### Methods
+
+| Method                             | Returns                           | Description                         |
+| ---------------------------------- | --------------------------------- | ----------------------------------- |
+| `getAssetMetadata()`               | `Promise<AssetMetadataResponse>`  | Get metadata for all assets         |
+| `getMetricMetadata(path, params?)` | `Promise<MetricMetadataResponse>` | Get metadata for a specific metric  |
+| `getMetricList()`                  | `Promise<MetricListResponse>`     | Get a list of all available metrics |
+| `callMetric<T>(path, params?)`     | `Promise<T>`                      | Call a metric endpoint directly     |
 
 ## Examples
 
-Explore our [detailed examples](./examples/README.md) to learn how to use the Glassnode API client effectively. The examples demonstrate:
+See the [examples directory](./examples/README.md) for detailed usage patterns.
 
-- Fetching and validating asset metadata
-- Working with metric lists and metadata
-- Calling metrics with parameters
-
-To run the examples:
-
-1. Navigate to the examples directory
-2. Create a `.env` file with your API key: `GLASSNODE_API_KEY=your_key_here`
-3. Install dependencies with `npm install`
-4. Run an example with `npx ts-node metadata.validation.ts`
+```bash
+cd examples
+cp .env.example .env  # add your API key
+pnpm dlx ts-node metadata.validation.ts
+```
 
 ## Development
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
-# Build the project
-npm run build
+# Build (Node.js + browser bundles)
+pnpm run build && pnpm run build:browser
 
 # Run tests
-npm test
+pnpm test
 
-# Lint code
-npm run lint
+# Lint
+pnpm run lint
 
-# Format code
-npm run format
+# Format
+pnpm run format
 ```
 
 ## License
