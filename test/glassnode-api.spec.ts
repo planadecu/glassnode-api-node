@@ -65,6 +65,22 @@ describe('GlassnodeAPI', () => {
       await api.getMetricList();
       expect(logger).toHaveBeenCalledWith('API call:', expect.stringContaining(DEFAULT_API_URL));
     });
+
+    it('should use custom fetch when provided', async () => {
+      const mockResponse = {
+        ok: true,
+        json: jest.fn().mockResolvedValue(mockMetricListResponse),
+      };
+      const customFetch = jest.fn().mockResolvedValue(mockResponse);
+
+      const api = new GlassnodeAPI({ apiKey: API_KEY, fetch: customFetch });
+      await api.getMetricList();
+
+      expect(customFetch).toHaveBeenCalledWith(
+        expect.stringContaining(`${DEFAULT_API_URL}/v1/metadata/metrics`)
+      );
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
   });
 
   describe('getAssetMetadata', () => {

@@ -6,6 +6,11 @@ import { z } from 'zod';
 export type Logger = (message: string, ...args: unknown[]) => void;
 
 /**
+ * Fetch function type matching the standard fetch API
+ */
+export type FetchFn = typeof fetch;
+
+/**
  * Zod schema for Glassnode API configuration
  */
 export const GlassnodeConfigSchema = z.object({
@@ -25,6 +30,12 @@ export const GlassnodeConfigSchema = z.object({
    * @example { logger: console.log }
    */
   logger: z.function().optional(),
+
+  /**
+   * Optional custom fetch function (e.g. for custom headers, retries, or testing)
+   * @default globalThis.fetch
+   */
+  fetch: z.function().optional(),
 });
 
 /**
