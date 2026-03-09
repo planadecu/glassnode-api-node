@@ -217,7 +217,7 @@ describe('GlassnodeAPI', () => {
       const api = createApi(fetchFn);
 
       await expect(api.callMetric('/market/price_usd_close', { a: 'BTC' })).rejects.toThrow(
-        'API request failed with status 500'
+        'API request failed (500)'
       );
     });
   });
@@ -260,7 +260,7 @@ describe('GlassnodeAPI', () => {
       const api = createApi(fetchFn);
 
       await expect(api.callBulkMetric('/market/marketcap_usd')).rejects.toThrow(
-        'API request failed with status 403'
+        'API request failed (403)'
       );
     });
   });
@@ -288,7 +288,36 @@ describe('GlassnodeAPI', () => {
         expect(apiError.status).toBe(401);
         expect(apiError.statusText).toBe('Unauthorized');
         expect(apiError.name).toBe('GlassnodeApiError');
+        expect(apiError.message).toContain('Invalid or missing API key');
       }
+    });
+
+    it('should use specific messages for known status codes', async () => {
+      const cases = [
+        { status: 403, expected: 'Access forbidden' },
+        { status: 404, expected: 'not found' },
+        { status: 429, expected: 'Rate limit exceeded' },
+      ];
+
+      for (const { status, expected } of cases) {
+        const fetchFn = createMockFetch({ ok: false, status, statusText: 'Error' });
+        const api = createApi(fetchFn);
+
+        try {
+          await api.getMetricList();
+          fail(`Expected error for status ${status}`);
+        } catch (error) {
+          expect((error as GlassnodeApiError).message).toContain(expected);
+        }
+      }
+    });
+
+    it('should mark 429 and 5xx errors as retryable', () => {
+      expect(new GlassnodeApiError(429, 'Too Many Requests').isRetryable).toBe(true);
+      expect(new GlassnodeApiError(500, 'Internal Server Error').isRetryable).toBe(true);
+      expect(new GlassnodeApiError(503, 'Service Unavailable').isRetryable).toBe(true);
+      expect(new GlassnodeApiError(400, 'Bad Request').isRetryable).toBe(false);
+      expect(new GlassnodeApiError(401, 'Unauthorized').isRetryable).toBe(false);
     });
 
     it('should handle network errors', async () => {

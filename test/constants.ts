@@ -15,4 +15,4 @@ export const STATUS_BAD_REQUEST = 400;
 
 // Error messages
 export const BAD_REQUEST_STATUS_TEXT = 'Bad Request';
-export const BAD_REQUEST_ERROR = `API request failed with status ${STATUS_BAD_REQUEST}: ${BAD_REQUEST_STATUS_TEXT}`;
+export const BAD_REQUEST_ERROR = `API request failed (${STATUS_BAD_REQUEST}): Bad request`;
