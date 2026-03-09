@@ -124,11 +124,28 @@ export const MetricDataTypeSchema = z.enum(['average', 'sum', 'count', 'percenta
 export type MetricDataType = z.infer<typeof MetricDataTypeSchema>;
 
 /**
+ * Metric descriptors schema (human-readable names, tags, descriptions)
+ */
+export const MetricDescriptorsSchema = z.object({
+  name: z.string().optional(),
+  short_name: z.string().optional(),
+  group: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  description: z.record(z.string(), z.string()).optional(),
+  data_sharing_group: z.string().optional(),
+});
+
+/**
+ * Metric descriptors type
+ */
+export type MetricDescriptors = z.infer<typeof MetricDescriptorsSchema>;
+
+/**
  * Metric metadata schema
  */
 export const MetricMetadataSchema = z.object({
   /**
-   * Metric name
+   * Metric path
    */
   path: z.string(),
 
@@ -151,7 +168,7 @@ export const MetricMetadataSchema = z.object({
   next_param: z.string().optional(),
 
   /**
-   * Available assets for this metric
+   * Reference links for this metric
    */
   refs: z.object({
     docs: z.string().optional(),
@@ -167,6 +184,11 @@ export const MetricMetadataSchema = z.object({
    * List of all allowed parameters and their values for the metric
    */
   parameters: z.record(z.string(), z.array(z.string())),
+
+  /**
+   * Human-readable descriptors (name, tags, description)
+   */
+  descriptors: MetricDescriptorsSchema.optional(),
 });
 
 /**
@@ -193,3 +215,32 @@ export type MetricMetadataResponse = z.infer<typeof MetricMetadataResponseSchema
  * Metric list response type
  */
 export type MetricListResponse = z.infer<typeof MetricListResponseSchema>;
+
+/**
+ * Bulk entry schema (one asset's value in a bulk response)
+ */
+export const BulkEntrySchema = z.object({
+  a: z.string(),
+  v: z.number(),
+  network: z.string().optional(),
+});
+
+/**
+ * Bulk entry type
+ */
+export type BulkEntry = z.infer<typeof BulkEntrySchema>;
+
+/**
+ * Bulk response schema (array of timestamped bulk entries)
+ */
+export const BulkResponseSchema = z.array(
+  z.object({
+    t: z.number(),
+    bulk: z.array(BulkEntrySchema),
+  })
+);
+
+/**
+ * Bulk response type
+ */
+export type BulkResponse = z.infer<typeof BulkResponseSchema>;

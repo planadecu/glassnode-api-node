@@ -7,6 +7,8 @@ import {
   MetricMetadataResponseSchema,
   MetricListResponse,
   MetricListResponseSchema,
+  BulkResponse,
+  BulkResponseSchema,
 } from './types/metadata';
 
 /**
@@ -111,5 +113,19 @@ export class GlassnodeAPI {
   async callMetric<T>(metricPath: string, params: Record<string, string> = {}): Promise<T> {
     const response = await this.request('/v1/metrics' + metricPath, { ...params, f: 'json' });
     return response as T;
+  }
+
+  /**
+   * Call a bulk metric endpoint (returns data for all assets at once)
+   * @param metricPath Path of the metric (e.g. /market/marketcap_usd)
+   * @param params Query parameters
+   * @returns Promise resolving to validated bulk response
+   */
+  async callBulkMetric(
+    metricPath: string,
+    params: Record<string, string> = {}
+  ): Promise<BulkResponse> {
+    const response = await this.request('/v1/bulk' + metricPath, { ...params, f: 'json' });
+    return BulkResponseSchema.parse(response);
   }
 }

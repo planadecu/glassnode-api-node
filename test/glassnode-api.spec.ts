@@ -222,6 +222,49 @@ describe('GlassnodeAPI', () => {
     });
   });
 
+  describe('callBulkMetric', () => {
+    it('should call a bulk metric endpoint and return validated data', async () => {
+      const mockData = [
+        {
+          t: 1609459200,
+          bulk: [
+            { a: 'BTC', v: 600000000000 },
+            { a: 'ETH', v: 100000000000, network: 'ethereum' },
+          ],
+        },
+      ];
+      const fetchFn = createMockFetch({
+        ok: true,
+        json: jest.fn().mockResolvedValue(mockData),
+      });
+
+      const api = createApi(fetchFn);
+      const result = await api.callBulkMetric('/market/marketcap_usd');
+
+      expect(fetchFn).toHaveBeenCalledWith(
+        `${DEFAULT_API_URL}/v1/bulk/market/marketcap_usd?f=json&api_key=${API_KEY}`
+      );
+      expect(result).toHaveLength(1);
+      expect(result[0].bulk).toHaveLength(2);
+      expect(result[0].bulk[0].a).toBe('BTC');
+      expect(result[0].bulk[1].network).toBe('ethereum');
+    });
+
+    it('should handle API errors', async () => {
+      const fetchFn = createMockFetch({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+      });
+
+      const api = createApi(fetchFn);
+
+      await expect(api.callBulkMetric('/market/marketcap_usd')).rejects.toThrow(
+        'API request failed with status 403'
+      );
+    });
+  });
+
   describe('error handling', () => {
     it('should reject with empty API key', () => {
       expect(() => new GlassnodeAPI({ apiKey: '' })).toThrow();
