@@ -21,6 +21,7 @@
     "build": "tsc",
     "build:browser": "rollup -c",
     "test": "jest",
+    "test:coverage": "jest --coverage",
     "lint": "eslint .",
     "format": "prettier --write .",
     "prepare": "husky",
