@@ -5,6 +5,7 @@ import {
   CUSTOM_API_URL,
   ASSETS_METADATA_ENDPOINT,
   METRICS_METADATA_ENDPOINT,
+  METRICS_ENDPOINT,
   BAD_REQUEST_STATUS_TEXT,
   BAD_REQUEST_ERROR,
   STATUS_BAD_REQUEST,
@@ -218,6 +219,77 @@ describe('GlassnodeAPI', () => {
       const api = new GlassnodeAPI({ apiKey: API_KEY });
 
       await expect(api.getMetricList()).rejects.toThrow(BAD_REQUEST_ERROR);
+    });
+  });
+
+  describe('callMetric', () => {
+    it('should call a metric endpoint and return data', async () => {
+      const mockData = [{ t: 1609459200, v: 29000 }];
+      const mockResponse = {
+        ok: true,
+        json: jest.fn().mockResolvedValue(mockData),
+      };
+
+      // @ts-expect-error: Mocking fetch
+      global.fetch.mockResolvedValue(mockResponse);
+
+      const api = new GlassnodeAPI({ apiKey: API_KEY });
+      const result = await api.callMetric<{ t: number; v: number }[]>('/market/price_usd_close', {
+        a: 'BTC',
+      });
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        `${DEFAULT_API_URL}${METRICS_ENDPOINT}/market/price_usd_close?a=BTC&f=json&api_key=${API_KEY}`
+      );
+      expect(result).toEqual(mockData);
+      expect(result[0].v).toBe(29000);
+    });
+
+    it('should handle API errors', async () => {
+      const mockResponse = {
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+      };
+
+      // @ts-expect-error: Mocking fetch
+      global.fetch.mockResolvedValue(mockResponse);
+
+      const api = new GlassnodeAPI({ apiKey: API_KEY });
+
+      await expect(api.callMetric('/market/price_usd_close', { a: 'BTC' })).rejects.toThrow(
+        'API request failed with status 500'
+      );
+    });
+  });
+
+  describe('error handling', () => {
+    it('should reject with empty API key', () => {
+      expect(() => new GlassnodeAPI({ apiKey: '' })).toThrow();
+    });
+
+    it('should handle network errors', async () => {
+      // @ts-expect-error: Mocking fetch
+      global.fetch.mockRejectedValue(new TypeError('Failed to fetch'));
+
+      const api = new GlassnodeAPI({ apiKey: API_KEY });
+
+      await expect(api.getMetricList()).rejects.toThrow('Glassnode API error: Failed to fetch');
+    });
+
+    it('should preserve error cause', async () => {
+      const networkError = new TypeError('Failed to fetch');
+      // @ts-expect-error: Mocking fetch
+      global.fetch.mockRejectedValue(networkError);
+
+      const api = new GlassnodeAPI({ apiKey: API_KEY });
+
+      try {
+        await api.getMetricList();
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).cause).toBe(networkError);
+      }
     });
   });
 });

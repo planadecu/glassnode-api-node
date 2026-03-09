@@ -7,6 +7,7 @@ export const CUSTOM_API_URL = 'https://custom-api-url.com';
 export const ASSETS_METADATA_ENDPOINT = '/v1/metadata/assets';
 export const METRICS_METADATA_ENDPOINT = '/v1/metadata/metrics';
 export const METRIC_METADATA_ENDPOINT = '/v1/metadata/metric';
+export const METRICS_ENDPOINT = '/v1/metrics';
 
 // Error messages
 export const BAD_REQUEST_STATUS_TEXT = 'Bad Request';
