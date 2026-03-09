@@ -1,4 +1,4 @@
-import { GlassnodeConfig, GlassnodeConfigSchema } from './types/config';
+import { GlassnodeConfig, GlassnodeConfigSchema, Logger } from './types/config';
 import {
   AssetMetadataResponse,
   MetricMetadataResponse,
@@ -14,6 +14,7 @@ import {
 export class GlassnodeAPI {
   private apiKey: string;
   private apiUrl: string;
+  private logger?: Logger;
 
   /**
    * Create a new Glassnode API client
@@ -25,6 +26,7 @@ export class GlassnodeAPI {
 
     this.apiKey = validatedConfig.apiKey;
     this.apiUrl = validatedConfig.apiUrl;
+    this.logger = validatedConfig.logger as Logger | undefined;
   }
 
   /**
@@ -41,7 +43,7 @@ export class GlassnodeAPI {
     });
 
     const url = `${this.apiUrl}${endpoint}?${queryParams}`;
-    console.log('  API call:', url);
+    this.logger?.('API call:', url);
 
     try {
       const response = await fetch(url);

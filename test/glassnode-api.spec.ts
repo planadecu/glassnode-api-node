@@ -49,6 +49,21 @@ describe('GlassnodeAPI', () => {
       // @ts-expect-error: Testing private property
       expect(api.apiUrl).toBe(CUSTOM_API_URL);
     });
+
+    it('should accept an optional logger', async () => {
+      const logger = jest.fn();
+      const api = new GlassnodeAPI({ apiKey: API_KEY, logger });
+
+      const mockResponse = {
+        ok: true,
+        json: jest.fn().mockResolvedValue(mockMetricListResponse),
+      };
+      // @ts-expect-error: Mocking fetch
+      global.fetch.mockResolvedValue(mockResponse);
+
+      await api.getMetricList();
+      expect(logger).toHaveBeenCalledWith('API call:', expect.stringContaining(DEFAULT_API_URL));
+    });
   });
 
   describe('getAssetMetadata', () => {
