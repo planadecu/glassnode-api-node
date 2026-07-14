@@ -7,6 +7,7 @@
 - Publish via npm Trusted Publishing (OIDC) with provenance instead of an `NPM_TOKEN` secret; align CI/publish workflows with standalone pnpm
 - Add package metadata: `homepage`, `bugs`, `engines`, `sideEffects`, `exports`, `publishConfig`, `keywords`, and expanded `author`
 - Rewrite README for discoverability (badges, features, and complete API / configuration / error-handling / retry / bulk docs); add MIT `LICENSE` file
+- Add `packageManager` field so the standalone pnpm setup in CI/publish workflows resolves the pnpm version
 
 ## 0.7.0
 
