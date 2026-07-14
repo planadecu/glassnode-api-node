@@ -26,6 +26,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:x402": "vitest run test/x402.integration.spec.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "prepare": "husky",
