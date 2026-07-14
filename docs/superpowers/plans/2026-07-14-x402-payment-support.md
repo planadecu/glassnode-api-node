@@ -22,34 +22,39 @@
 
 ## File structure
 
-| File | Responsibility |
-| --- | --- |
-| `src/types/config.ts` (modify) | Add `x402` flag + URL constants; make `apiUrl`/`apiKey` optional; add cross-field refines. |
-| `src/glassnode-api.ts` (modify) | Resolve base URL from `x402`; omit `api_key` when no key. |
-| `src/errors.ts` (modify) | Friendly `402` message. |
-| `src/x402.ts` (new) | `createX402Fetch()` + pure helpers (`usdcDecimalToAtomic`, `createMaxAmountPolicy`). Only file that touches crypto. |
-| `package.json` (modify) | `./x402` subpath export; optional peer + dev deps; version bump. |
-| `tsconfig.browser.json` (modify) | Exclude `src/x402.ts` from the browser type program. |
-| `test/x402.spec.ts` (new) | Unit tests for the helper (pure fns + real-deps smoke). |
-| `test/x402.missing-deps.spec.ts` (new) | Missing-optional-deps error path (mocked import). |
-| `test/x402.integration.spec.ts` (new) | Opt-in testnet integration (env-gated, self-skips). |
-| `README.md` (modify) | "Paid calls with x402" section. |
-| `CHANGELOG.md` (modify) | 0.8.0 entry. |
+| File                                   | Responsibility                                                                                                      |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `src/types/config.ts` (modify)         | Add `x402` flag + URL constants; make `apiUrl`/`apiKey` optional; add cross-field refines.                          |
+| `src/glassnode-api.ts` (modify)        | Resolve base URL from `x402`; omit `api_key` when no key.                                                           |
+| `src/errors.ts` (modify)               | Friendly `402` message.                                                                                             |
+| `src/x402.ts` (new)                    | `createX402Fetch()` + pure helpers (`usdcDecimalToAtomic`, `createMaxAmountPolicy`). Only file that touches crypto. |
+| `package.json` (modify)                | `./x402` subpath export; optional peer + dev deps; version bump.                                                    |
+| `tsconfig.browser.json` (modify)       | Exclude `src/x402.ts` from the browser type program.                                                                |
+| `test/x402.spec.ts` (new)              | Unit tests for the helper (pure fns + real-deps smoke).                                                             |
+| `test/x402.missing-deps.spec.ts` (new) | Missing-optional-deps error path (mocked import).                                                                   |
+| `test/x402.integration.spec.ts` (new)  | Opt-in testnet integration (env-gated, self-skips).                                                                 |
+| `README.md` (modify)                   | "Paid calls with x402" section.                                                                                     |
+| `CHANGELOG.md` (modify)                | 0.8.0 entry.                                                                                                        |
 
 Task order respects dependencies: config → client wiring → error → packaging/deps (so optional deps are installed) → helper → integration test → docs.
 
 ---
 
-### Task 1: Config — x402 flag, URL constants, optional apiUrl/apiKey, refines
+### Task 1: Config schema + client base-URL resolution
 
 **Files:**
+
 - Modify: `src/types/config.ts`
-- Test: `test/config.spec.ts` (new)
+- Modify: `src/glassnode-api.ts` (imports; `apiKey` field type; constructor; `request()` query)
+- Test: `test/config.spec.ts` (new), `test/glassnode-api.spec.ts` (append)
+
+> **Done as one task/commit on purpose.** Dropping the Zod `apiUrl` default without also moving base-URL resolution into the constructor breaks the existing `should create an instance with default API URL` test (`test/glassnode-api.spec.ts`), and the Husky pre-commit hook (`vitest related`) would then block a partial commit. Config + constructor land together so the tree is green at the commit boundary.
 
 **Interfaces:**
-- Produces: `DEFAULT_API_URL`, `X402_API_URL`, `X402_TESTNET_API_URL` (string consts); `GlassnodeConfigSchema` (now with `x402: boolean`, optional `apiKey`/`apiUrl`, and two refines); `GlassnodeConfig` type unchanged in name.
 
-- [ ] **Step 1: Write the failing test**
+- Produces: `DEFAULT_API_URL`, `X402_API_URL`, `X402_TESTNET_API_URL` (string consts); `GlassnodeConfigSchema` (now with `x402: boolean`, optional `apiKey`/`apiUrl`, two refines); `GlassnodeConfig` type (name unchanged); `GlassnodeAPI` whose base URL is `apiUrl ?? (x402 ? X402_API_URL : DEFAULT_API_URL)` and which omits `api_key` when no key is set.
+
+- [ ] **Step 1: Write the failing config test**
 
 Create `test/config.spec.ts`:
 
@@ -90,12 +95,56 @@ describe('GlassnodeConfigSchema', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 2: Write the failing x402-mode client tests**
 
-Run: `pnpm exec vitest run test/config.spec.ts`
-Expected: FAIL — `DEFAULT_API_URL`/`X402_API_URL`/`X402_TESTNET_API_URL` are not exported; `x402` not on schema.
+Append to `test/glassnode-api.spec.ts`, inside the top-level `describe('GlassnodeAPI', ...)`:
 
-- [ ] **Step 3: Implement the config changes**
+```ts
+describe('x402 mode', () => {
+  const okFetch = () =>
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(mockMetricListResponse),
+    });
+
+  it('routes to the x402 host when x402 is true', async () => {
+    const fetchFn = okFetch();
+    const api = new GlassnodeAPI({ x402: true, fetch: fetchFn });
+    await api.getMetricList();
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining('https://x402.glassnode.com/v1/metadata/metrics')
+    );
+  });
+
+  it('omits api_key when no apiKey is set', async () => {
+    const fetchFn = okFetch();
+    const api = new GlassnodeAPI({ x402: true, fetch: fetchFn });
+    await api.getMetricList();
+    const calledUrl = fetchFn.mock.calls[0][0] as string;
+    expect(calledUrl).not.toContain('api_key');
+  });
+
+  it('an explicit apiUrl overrides the x402 preset', async () => {
+    const fetchFn = okFetch();
+    const api = new GlassnodeAPI({
+      x402: true,
+      apiUrl: 'https://x402.glassnode.tech',
+      fetch: fetchFn,
+    });
+    await api.getMetricList();
+    expect(fetchFn).toHaveBeenCalledWith(
+      expect.stringContaining('https://x402.glassnode.tech/v1/metadata/metrics')
+    );
+  });
+});
+```
+
+- [ ] **Step 3: Run both to verify they fail**
+
+Run: `pnpm exec vitest run test/config.spec.ts test/glassnode-api.spec.ts`
+Expected: FAIL — `config.spec.ts` can't import the new constants; the x402-mode tests still hit `https://api.glassnode.com` and append `api_key`.
+
+- [ ] **Step 4: Implement the config schema**
 
 Replace the contents of `src/types/config.ts` with:
 
@@ -161,84 +210,11 @@ export const GlassnodeConfigSchema = z
 export type GlassnodeConfig = z.input<typeof GlassnodeConfigSchema>;
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
-
-Run: `pnpm exec vitest run test/config.spec.ts`
-Expected: PASS (4 tests).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/types/config.ts test/config.spec.ts
-git commit -m "feat(config): add x402 flag, url constants, conditional apiKey/fetch"
-```
-
----
-
-### Task 2: Base-URL resolution + omit api_key when absent
-
-**Files:**
-- Modify: `src/glassnode-api.ts:18` (field type), `:29-39` (constructor), `:47-52` (request query building)
-- Test: `test/glassnode-api.spec.ts` (append tests)
-
-**Interfaces:**
-- Consumes: `X402_API_URL`, `DEFAULT_API_URL` from `./types/config`.
-- Produces: `GlassnodeAPI` whose base URL is `apiUrl ?? (x402 ? X402_API_URL : DEFAULT_API_URL)`, and whose requests omit `api_key` when no key is set.
-
-- [ ] **Step 1: Write the failing tests**
-
-Append to `test/glassnode-api.spec.ts` (inside the top-level `describe('GlassnodeAPI', ...)`), and add `X402_API_URL` to the imports from `../src/types/config` if that file is imported — otherwise import inline in the test:
-
-```ts
-  describe('x402 mode', () => {
-    const okFetch = () =>
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue(mockMetricListResponse),
-      });
-
-    it('routes to the x402 host when x402 is true', async () => {
-      const fetchFn = okFetch();
-      const api = new GlassnodeAPI({ x402: true, fetch: fetchFn });
-      await api.getMetricList();
-      expect(fetchFn).toHaveBeenCalledWith(
-        expect.stringContaining('https://x402.glassnode.com/v1/metadata/metrics')
-      );
-    });
-
-    it('omits api_key when no apiKey is set', async () => {
-      const fetchFn = okFetch();
-      const api = new GlassnodeAPI({ x402: true, fetch: fetchFn });
-      await api.getMetricList();
-      const calledUrl = fetchFn.mock.calls[0][0] as string;
-      expect(calledUrl).not.toContain('api_key');
-    });
-
-    it('an explicit apiUrl overrides the x402 preset', async () => {
-      const fetchFn = okFetch();
-      const api = new GlassnodeAPI({
-        x402: true,
-        apiUrl: 'https://x402.glassnode.tech',
-        fetch: fetchFn,
-      });
-      await api.getMetricList();
-      expect(fetchFn).toHaveBeenCalledWith(
-        expect.stringContaining('https://x402.glassnode.tech/v1/metadata/metrics')
-      );
-    });
-  });
-```
-
-- [ ] **Step 2: Run the tests to verify they fail**
-
-Run: `pnpm exec vitest run test/glassnode-api.spec.ts -t "x402 mode"`
-Expected: FAIL — base URL is still `https://api.glassnode.com` and `api_key=` is appended.
-
-- [ ] **Step 3: Implement the client changes**
+- [ ] **Step 5: Implement the client changes**
 
 In `src/glassnode-api.ts`:
 
-3a. Update the import at the top (add the two constants):
+5a. Update the import at the top (add the two constants):
 
 ```ts
 import {
@@ -251,50 +227,51 @@ import {
 } from './types/config';
 ```
 
-3b. Change the field declaration (was `private apiKey: string;`):
+5b. Change the field declaration (was `private apiKey: string;`):
 
 ```ts
   private apiKey: string | undefined;
 ```
 
-3c. In the constructor, replace the `this.apiKey` / `this.apiUrl` assignments:
+5c. In the constructor, replace the `this.apiKey` / `this.apiUrl` assignments:
 
 ```ts
-    this.apiKey = validatedConfig.apiKey;
-    this.apiUrl =
-      validatedConfig.apiUrl ?? (validatedConfig.x402 ? X402_API_URL : DEFAULT_API_URL);
+this.apiKey = validatedConfig.apiKey;
+this.apiUrl = validatedConfig.apiUrl ?? (validatedConfig.x402 ? X402_API_URL : DEFAULT_API_URL);
 ```
 
-3d. In `request()`, replace the `queryParams` construction:
+5d. In `request()`, replace the `queryParams` construction (was `new URLSearchParams({ ...params, api_key: this.apiKey })`):
 
 ```ts
-    const queryParams = new URLSearchParams({
-      ...params,
-      ...(this.apiKey ? { api_key: this.apiKey } : {}),
-    });
+const queryParams = new URLSearchParams({
+  ...params,
+  ...(this.apiKey ? { api_key: this.apiKey } : {}),
+});
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 6: Run the full suite to verify green**
 
-Run: `pnpm exec vitest run test/glassnode-api.spec.ts`
-Expected: PASS (all existing tests + the 3 new x402 tests).
+Run: `pnpm exec vitest run`
+Expected: PASS — the existing 26 tests (including `should create an instance with default API URL`), the 4 config tests, and the 3 x402-mode tests.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/glassnode-api.ts test/glassnode-api.spec.ts
-git commit -m "feat(client): resolve x402 base url and omit api_key when absent"
+git add src/types/config.ts src/glassnode-api.ts test/config.spec.ts test/glassnode-api.spec.ts
+git commit -m "feat(config): x402 preset, base-url resolution, conditional apiKey/fetch"
 ```
 
 ---
 
-### Task 3: Friendly 402 error message
+### Task 2: Friendly 402 error message
 
 **Files:**
+
 - Modify: `src/errors.ts:1-7`
 - Test: `test/glassnode-api.spec.ts` (append)
 
 **Interfaces:**
+
 - Produces: `GlassnodeApiError` with a helpful `402` message; `isRetryable` stays `false` for `402`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -302,12 +279,12 @@ git commit -m "feat(client): resolve x402 base url and omit api_key when absent"
 Append inside `describe('error handling', ...)` in `test/glassnode-api.spec.ts`:
 
 ```ts
-    it('gives a helpful 402 message and marks it non-retryable', () => {
-      const err = new GlassnodeApiError(402, 'Payment Required');
-      expect(err.message).toContain('Payment required');
-      expect(err.message).toContain('glassnode-api/x402');
-      expect(err.isRetryable).toBe(false);
-    });
+it('gives a helpful 402 message and marks it non-retryable', () => {
+  const err = new GlassnodeApiError(402, 'Payment Required');
+  expect(err.message).toContain('Payment required');
+  expect(err.message).toContain('glassnode-api/x402');
+  expect(err.isRetryable).toBe(false);
+});
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -344,14 +321,16 @@ git commit -m "feat(errors): friendly 402 payment-required message"
 
 ---
 
-### Task 4: Packaging — optional deps, subpath export, browser exclude
+### Task 3: Packaging — optional deps, subpath export, browser exclude
 
 **Files:**
+
 - Modify: `package.json` (exports, peerDependencies, peerDependenciesMeta, devDependencies)
 - Modify: `tsconfig.browser.json` (exclude)
 
 **Interfaces:**
-- Produces: the `@x402/fetch`, `@x402/evm`, `viem` module specifiers resolvable at build/test time; the `glassnode-api/x402` subpath mapped to `dist/x402.js`. Task 5 depends on this.
+
+- Produces: the `@x402/fetch`, `@x402/evm`, `viem` module specifiers resolvable at build/test time; the `glassnode-api/x402` subpath mapped to `dist/x402.js`. Task 4 depends on this.
 
 - [ ] **Step 1: Add the optional deps as devDependencies (installs them)**
 
@@ -412,7 +391,7 @@ In `tsconfig.browser.json`, add `"src/x402.ts"` to `exclude`:
 Run: `pnpm install --config.minimumReleaseAge=0 && pnpm run build && pnpm run build:browser && pnpm test`
 Expected: all succeed; no `dist/x402.*` yet (created in Task 5), browser bundle unchanged.
 
-> **Fallback:** if a later `pnpm run build:browser` (Task 5 Step 7) still tries to type-check `src/x402.ts` and errors on `@x402/*`/`viem` resolution, also pass an explicit exclude to the Rollup TypeScript plugin in `rollup.config.mjs`: change `typescript({ tsconfig: './tsconfig.browser.json' })` to `typescript({ tsconfig: './tsconfig.browser.json', exclude: ['src/x402.ts'] })`.
+> **Fallback:** if a later `pnpm run build:browser` (Task 4 Step 7) still tries to type-check `src/x402.ts` and errors on `@x402/*`/`viem` resolution, also pass an explicit exclude to the Rollup TypeScript plugin in `rollup.config.mjs`: change `typescript({ tsconfig: './tsconfig.browser.json' })` to `typescript({ tsconfig: './tsconfig.browser.json', exclude: ['src/x402.ts'] })`.
 
 - [ ] **Step 6: Commit**
 
@@ -423,13 +402,15 @@ git commit -m "chore(x402): optional peer deps, ./x402 subpath export, browser e
 
 ---
 
-### Task 5: `createX402Fetch` helper
+### Task 4: `createX402Fetch` helper
 
 **Files:**
+
 - Create: `src/x402.ts`
 - Test: `test/x402.spec.ts`, `test/x402.missing-deps.spec.ts`
 
 **Interfaces:**
+
 - Consumes: `@x402/fetch` (`wrapFetchWithPayment`, `x402Client`), `@x402/evm` (`ExactEvmScheme`), `viem` (`LocalAccount` type only).
 - Produces:
   - `usdcDecimalToAtomic(value: string): bigint`
@@ -548,7 +529,7 @@ export async function createX402Fetch(options: X402FetchOptions): Promise<typeof
   ]).catch((err) => {
     throw new Error(
       "createX402Fetch requires the optional peer dependencies '@x402/fetch', '@x402/evm', and 'viem'. Install them: pnpm add @x402/fetch @x402/evm viem",
-      { cause: err },
+      { cause: err }
     );
   });
   const { wrapFetchWithPayment, x402Client } = x402fetchMod;
@@ -558,11 +539,11 @@ export async function createX402Fetch(options: X402FetchOptions): Promise<typeof
   for (const network of X402_NETWORKS) {
     client = client.register(
       network,
-      new ExactEvmScheme(account as ConstructorParameters<typeof ExactEvmScheme>[0]),
+      new ExactEvmScheme(account as ConstructorParameters<typeof ExactEvmScheme>[0])
     );
   }
   client = client.registerPolicy(
-    createMaxAmountPolicy(maxAtomic) as unknown as Parameters<typeof client.registerPolicy>[0],
+    createMaxAmountPolicy(maxAtomic) as unknown as Parameters<typeof client.registerPolicy>[0]
   );
 
   return wrapFetchWithPayment(baseFetch, client) as typeof fetch;
@@ -595,7 +576,7 @@ describe('createX402Fetch without optional deps', () => {
     };
     await expect(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      createX402Fetch({ account: account as any }),
+      createX402Fetch({ account: account as any })
     ).rejects.toThrow(/optional peer dependencies/);
   });
 });
@@ -620,13 +601,15 @@ git commit -m "feat(x402): createX402Fetch helper (subpath glassnode-api/x402)"
 
 ---
 
-### Task 6: Opt-in testnet integration test
+### Task 5: Opt-in testnet integration test
 
 **Files:**
+
 - Create: `test/x402.integration.spec.ts`
 - Modify: `package.json` (add `test:x402` script)
 
 **Interfaces:**
+
 - Consumes: `createX402Fetch`, `GlassnodeAPI`, `X402_TESTNET_API_URL`, `viem/accounts.privateKeyToAccount`.
 - Produces: an env-gated E2E test that self-skips without `X402_TESTNET_PRIVATE_KEY` (so `pnpm test`/CI stay hermetic).
 
@@ -688,12 +671,14 @@ git commit -m "test(x402): opt-in testnet integration test + test:x402 script"
 
 ---
 
-### Task 7: Docs + version bump
+### Task 6: Docs + version bump
 
 **Files:**
+
 - Modify: `README.md`, `CHANGELOG.md`, `package.json` (version)
 
 **Interfaces:**
+
 - Produces: user-facing docs for the feature; `0.8.0` release entry.
 
 - [ ] **Step 1: Add the README section**
@@ -733,17 +718,18 @@ const mvrv = await api.callMetric('/market/mvrv', { a: 'BTC', i: '24h' });
 
 **`createX402Fetch(options)`**
 
-| Option              | Type          | Default              | Description                                          |
-| ------------------- | ------------- | -------------------- | ---------------------------------------------------- |
-| `account`           | `LocalAccount`| — (**required**)     | viem account that signs payments                     |
-| `maxPaymentPerCall` | `string`      | `'0.06'`             | Per-call USDC spend ceiling                          |
-| `fetch`             | `typeof fetch`| `globalThis.fetch`   | Base fetch to wrap                                   |
+| Option              | Type           | Default            | Description                      |
+| ------------------- | -------------- | ------------------ | -------------------------------- |
+| `account`           | `LocalAccount` | — (**required**)   | viem account that signs payments |
+| `maxPaymentPerCall` | `string`       | `'0.06'`           | Per-call USDC spend ceiling      |
+| `fetch`             | `typeof fetch` | `globalThis.fetch` | Base fetch to wrap               |
 
 > **Spend safety:** `maxPaymentPerCall` caps a **single** request — it is **not** a cumulative budget, so
 > an agent loop can still spend within that ceiling repeatedly. Use a **dedicated, funded-but-limited**
 > wallet (never your primary key), and load the key from the environment — never hardcode it.
 
 **Notes**
+
 - **Bulk metrics are not available over x402** — `callBulkMetric()` only works against the free
   `api.glassnode.com`.
 - **Testnet:** target Base Sepolia by passing `apiUrl: 'https://x402.glassnode.tech'`.
@@ -785,7 +771,7 @@ git commit -m "docs(x402): README section, CHANGELOG, bump to 0.8.0"
 
 ## Self-review notes (for the implementer)
 
-- **Spec coverage:** config preset (T1), URL resolution + api_key omission (T2), 402 error (T3), packaging/optional-deps/browser-exclude (T4), helper + spend cap + missing-deps error (T5), testnet integration (T6), docs/bulk-limitation/version (T7). All spec sections map to a task.
+- **Spec coverage:** config preset + URL resolution + api_key omission (T1), 402 error (T2), packaging/optional-deps/browser-exclude (T3), helper + spend cap + missing-deps error (T4), testnet integration (T5), docs/bulk-limitation/version (T6). All spec sections map to a task.
 - **Type names are consistent across tasks:** `createX402Fetch`, `usdcDecimalToAtomic`, `createMaxAmountPolicy`, `X402_API_URL`, `X402_TESTNET_API_URL`, `DEFAULT_API_URL`.
 - **Verified before writing:** the `src/x402.ts` source in Task 5 was type-checked against the real installed `@x402/fetch@2.18`, `@x402/evm@2.18`, and `viem` `.d.ts` under `tsc 6.0.3` (clean), and the client chain (`new x402Client().register(...).registerPolicy(...)` → `wrapFetchWithPayment`) was smoke-run in Node.
 - **If `pnpm add` is blocked by the local `.npmrc` release-age quarantine**, the `--config.minimumReleaseAge=0` flag (already in the commands) overrides it for that install.
