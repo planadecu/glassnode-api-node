@@ -6,13 +6,21 @@
 
 ## Overview
 
-Glassnode now exposes a paid, per-call API over the [x402 payment protocol](https://docs.cdp.coinbase.com/x402)
-at `https://x402.glassnode.com`. Requests that require payment return `402 Payment Required`; an
-x402-aware client signs a USDC payment authorization on **Base mainnet** and retries. Pricing (authoritative
-value always comes from the live `402` challenge):
+Glassnode now exposes a paid, per-call API over the [x402 payment protocol](https://x402.org)
+at `https://x402.glassnode.com` (mainnet) and `https://x402.glassnode.tech` (testnet). Requests that
+require payment return `402 Payment Required` with a header-based challenge; an x402-aware client signs a
+USDC payment authorization and retries.
 
-- Metadata endpoints (`/v1/metadata/*`): **$0.01 USDC/call**
-- Metrics endpoints (`/v1/metrics/*`): **$0.05 USDC/call**
+**Verified from the live `402` challenges** (`payment-required` header, base64 JSON, `x402Version: 2`,
+scheme `exact`; `accepts[].amount` is USDC atomic units, 6 decimals — always authoritative):
+
+| Endpoint class              | Price               | Mainnet network / asset                   | Testnet network / asset                      |
+| --------------------------- | ------------------- | ----------------------------------------- | -------------------------------------------- |
+| Metadata (`/v1/metadata/*`) | `10000` = **$0.01** | `eip155:8453` (Base) / USDC `0x8335…2913` | `eip155:84532` (Base Sepolia) / `0x036C…F7e` |
+| Metrics (`/v1/metrics/*`)   | `50000` = **$0.05** | same                                      | same                                         |
+
+**Bulk metrics are NOT exposed over x402** — `GET /v1/metrics/.../bulk` returns `404` on the x402 host.
+`callBulkMetric()` is therefore unsupported in x402 mode (see Non-goals).
 
 This design adds first-class x402 support to the library **without** shipping crypto/wallet code in the
 core package. x402 tooling is opt-in via a subpath export and optional peer dependencies.
@@ -21,14 +29,18 @@ core package. x402 tooling is opt-in via a subpath export and optional peer depe
 
 - Let a Node.js caller make paid Glassnode calls through the existing `GlassnodeAPI` client.
 - Keep the core package's footprint unchanged: single runtime dependency (`zod`), browser-friendly.
-- Make the crypto stack (`x402-fetch`, `viem`) **optional** — installed only by users who make paid calls.
+- Make the crypto stack (`@x402/fetch`, `viem`) **optional** — installed only by users who make paid calls.
 - Provide a built-in spend guard with a safe default.
 
 ## Non-goals (YAGNI)
 
 - Browser signing (injected wallet / EIP-1193). Explicitly deferred to a later iteration; the design
   leaves room for it in the same subpath.
-- Networks other than Base, or tokens other than USDC.
+- **Bulk metrics over x402.** The x402 host 404s on `/v1/metrics/.../bulk`; `callBulkMetric()` stays a
+  free-API (`api.glassnode.com`) feature only. In x402 mode a bulk call will surface the normal `404`
+  error; the README documents this limitation. (No special guard in v1 unless we later choose to throw a
+  clearer message.)
+- Networks other than Base / Base Sepolia, or tokens other than USDC.
 - Payment receipts, balance top-ups, streaming, or any wallet management beyond signing a call.
 
 ## Key decisions
@@ -37,25 +49,29 @@ core package. x402 tooling is opt-in via a subpath export and optional peer depe
    subpath; the core entry (`glassnode-api`) never imports crypto. Chosen over an all-in-core config
    (leaks crypto into the core module graph; constructors can't `await` a dynamic import) and over a
    separate companion package (extra release pipeline for a small helper).
-2. **x402 client: `x402-fetch` v1 (Coinbase lineage).** Uses
-   `wrapFetchWithPayment(fetch, walletClient, maxValue?)`. Matches the "x402 Quickstart for Buyers"
-   referenced by Glassnode's own x402 docs.
+2. **x402 client: `@x402/fetch` v2 (x402-foundation).** _Revised from the initial Coinbase `x402-fetch` v1
+   pick — pending final confirmation._ The live Glassnode endpoints return **`x402Version: 2`** with a
+   header-based `payment-required` challenge and CAIP-2 networks (`eip155:8453`); the Coinbase **unscoped
+   `x402-fetch` v1** (x402Version 1, network `"base"`, body-based challenge) cannot parse this, so the
+   scoped **`@x402/fetch` v2** foundation client is required. Its exact wrapper API (the v2 equivalent of
+   `wrapFetchWithPayment` and its max-amount option) is to be confirmed against the installed package
+   during implementation.
 3. **Spend safety exposed with a default cap.** `maxPaymentPerCall` (USDC decimal string) defaults to
-   `'0.06'` (just above the $0.05 metrics price), converted to `maxValue` atomic units. Tighter than
-   `x402-fetch`'s own 0.1 USDC default.
+   `'0.06'` (just above the $0.05 metrics price), converted to atomic units (`parseUnits(value, 6)`) and
+   passed to the client's max-amount guard.
 4. **Node-first.** Browser parity is a separate, later effort.
 
 ## Architecture
 
 ### Module layout
 
-| File | Change | Notes |
-| --- | --- | --- |
-| `src/x402.ts` | **new** | Compiled to subpath export `glassnode-api/x402`. Exports `createX402Fetch` + types. **All** optional-dep usage is behind a dynamic `import()` here. |
-| `src/types/config.ts` | edit | Add `x402?: boolean`; export `X402_API_URL = 'https://x402.glassnode.com'` **and** a source-level `DEFAULT_API_URL = 'https://api.glassnode.com'` constant (today that literal only lives inside the Zod default). Change `apiUrl` to `z.string().url().optional()` (keep `.url()` validation, drop `.default()`) so "explicitly set" is detectable. Make `apiKey` `.optional()` and add an object-level `.refine` requiring it when `x402` is falsy. |
-| `src/glassnode-api.ts` | edit | Base-URL resolution (see below); change the `private apiKey` field type to `string \| undefined` and the `this.apiKey =` assignment accordingly. Request path, retries, and Zod validation otherwise unchanged. |
-| `src/errors.ts` | edit | Add a friendly `402` message. |
-| `src/index.ts` | unchanged | Deliberately does **not** re-export the helper, keeping the core entry `zod`-only. `X402_API_URL` and the `x402` config flag flow through the normal config exports (plain strings/booleans, no crypto). |
+| File                   | Change    | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/x402.ts`          | **new**   | Compiled to subpath export `glassnode-api/x402`. Exports `createX402Fetch` + types. **All** optional-dep usage is behind a dynamic `import()` here.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `src/types/config.ts`  | edit      | Add `x402?: boolean`; export `X402_API_URL = 'https://x402.glassnode.com'`, `X402_TESTNET_API_URL = 'https://x402.glassnode.tech'`, **and** a source-level `DEFAULT_API_URL = 'https://api.glassnode.com'` constant (today that literal only lives inside the Zod default). Change `apiUrl` to `z.string().url().optional()` (keep `.url()`, drop `.default()`) so "explicitly set" is detectable. Make `apiKey` `.optional()` and add object-level `.refine`s: (a) `apiKey` required when `x402` is falsy; (b) **`fetch` required when `x402` is `true`** (a plain fetch can't pay). |
+| `src/glassnode-api.ts` | edit      | Base-URL resolution (see below); change the `private apiKey` field type to `string \| undefined` and the `this.apiKey =` assignment accordingly. Request path, retries, and Zod validation otherwise unchanged.                                                                                                                                                                                                                                                                                                                                                                       |
+| `src/errors.ts`        | edit      | Add a friendly `402` message.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `src/index.ts`         | unchanged | Deliberately does **not** re-export the helper, keeping the core entry `zod`-only. `X402_API_URL` and the `x402` config flag flow through the normal config exports (plain strings/booleans, no crypto).                                                                                                                                                                                                                                                                                                                                                                              |
 
 ### Core API
 
@@ -76,6 +92,10 @@ apiUrl ?? (x402 ? X402_API_URL : DEFAULT_API_URL)
 ```
 
 - Fully backward-compatible: with neither `apiUrl` nor `x402`, the URL stays `https://api.glassnode.com`.
+- **`fetch` is required when `x402: true`.** Enforced at construction via a Zod refine — without a
+  payment-capable fetch every call would just `402`. The error message points to `glassnode-api/x402`.
+- **Testnet:** `x402: true` defaults to mainnet; target Base Sepolia by passing
+  `apiUrl: X402_TESTNET_API_URL` explicitly (an explicit `apiUrl` always wins over the preset).
 - **`apiKey` becomes optional under x402.** Glassnode's x402 endpoint is authorized by payment, not an API
   key (its own curl example sends no `api_key`). So:
   - Config validation: `apiKey` is required when `x402` is falsy (unchanged, backward-compatible) and
@@ -85,7 +105,7 @@ apiUrl ?? (x402 ? X402_API_URL : DEFAULT_API_URL)
     with `x402` falsy compiles but throws at construction. (Verified: a Zod-4 object `.refine` still parses
     correctly and nothing in the repo relies on `.shape`/`.extend` of this schema.)
   - Request building: `request()` appends `api_key=<key>` **only when an `apiKey` is present**. When absent
-    (x402-only usage) the param is omitted entirely. An API key *may* still be supplied alongside x402 if
+    (x402-only usage) the param is omitted entirely. An API key _may_ still be supplied alongside x402 if
     the caller has one; it is not forced.
 - No other changes to the request loop: the injected x402-wrapped `fetch` handles `402` transparently,
   below the library's existing `maxRetries` (429/5xx) loop and before Zod validation.
@@ -96,9 +116,9 @@ apiUrl ?? (x402 ? X402_API_URL : DEFAULT_API_URL)
 import type { LocalAccount } from 'viem'; // type-only — must not trigger a runtime load
 
 type X402FetchOptions = {
-  account: LocalAccount;         // viem account, e.g. privateKeyToAccount(pk)
-  maxPaymentPerCall?: string;    // USDC decimal, default '0.06'
-  fetch?: typeof fetch;          // base fetch to wrap, default globalThis.fetch
+  account: LocalAccount; // viem account, e.g. privateKeyToAccount(pk)
+  maxPaymentPerCall?: string; // USDC decimal, default '0.06'
+  fetch?: typeof fetch; // base fetch to wrap, default globalThis.fetch
 };
 
 async function createX402Fetch(options: X402FetchOptions): Promise<typeof fetch>;
@@ -106,21 +126,23 @@ async function createX402Fetch(options: X402FetchOptions): Promise<typeof fetch>
 
 Behavior:
 
-1. Dynamically `import('x402-fetch')` and (only if needed for signer/units) `import('viem')`. If either
-   module is missing, throw a clear error: *"createX402Fetch requires the optional peer dependencies
-   `x402-fetch` and `viem`. Install them: `pnpm add x402-fetch viem`."* All value imports of the optional
+1. Dynamically `import('@x402/fetch')` and (only if needed for signer/units) `import('viem')`. If either
+   module is missing, throw a clear error: _"createX402Fetch requires the optional peer dependencies
+   `@x402/fetch` and `viem`. Install them: `pnpm add @x402/fetch viem`."_ All value imports of the optional
    deps stay inside the async function; only `import type` references appear at module scope, so importing
    the subpath without the peers installed does not throw until `createX402Fetch` is actually called.
-2. **Signer:** during implementation, check `x402-fetch@1`'s `.d.ts` for the accepted signer type. x402
-   signs an off-chain EIP-3009 authorization (the facilitator submits on-chain), so the transport/chain are
-   largely inert. If `wrapFetchWithPayment` accepts a bare `LocalAccount`, pass `account` directly and do
-   **not** build a wallet client. Only if it strictly requires a `WalletClient`, construct a minimal Base
-   one: `createWalletClient({ account, chain: base, transport: http() })`. (Prefer the bare-account path.)
-3. Convert `maxPaymentPerCall` → `maxValue: bigint` via `parseUnits(value, 6)` (USDC has 6 decimals);
-   e.g. `parseUnits('0.06', 6) === 60000n`.
-4. Return `wrapFetchWithPayment(baseFetch, signer, maxValue)`. Its return type is `(input, init?) =>
-   Promise<Response>`, which does **not** structurally include `fetch.preconnect`; cast the result
-   `as typeof fetch` so it satisfies the config's `FetchFn` under `strict`.
+2. **Signer:** during implementation, check `@x402/fetch`'s `.d.ts` for the accepted signer type and the
+   exact wrapper name/signature (the v2 equivalent of `wrapFetchWithPayment`). x402 signs an off-chain
+   EIP-3009 authorization (the facilitator submits on-chain), so transport/chain are largely inert. If the
+   wrapper accepts a bare `LocalAccount`, pass `account` directly and do **not** build a wallet client;
+   only if it strictly requires a `WalletClient`, construct a minimal one for the target chain
+   (`base` mainnet / `baseSepolia` testnet). Prefer the bare-account path.
+3. Convert `maxPaymentPerCall` → an atomic-unit cap via `parseUnits(value, 6)` (USDC has 6 decimals),
+   e.g. `parseUnits('0.06', 6) === 60000n`, and pass it to the v2 client's max-amount option (confirm the
+   option's exact name/type against `@x402/fetch`).
+4. Return the wrapped fetch. Its return type is `(input, init?) => Promise<Response>`, which does **not**
+   structurally include `fetch.preconnect`; cast the result `as typeof fetch` so it satisfies the config's
+   `FetchFn` under `strict`.
 
 > The `walletClient` advanced override is intentionally **cut from v1** (YAGNI) — trivially re-addable if a
 > caller needs a custom transport/chain.
@@ -149,10 +171,10 @@ const mvrv = await api.callMetric('/market/mvrv', { a: 'BTC', i: '24h' });
   authorization on Base, and retries. The library only ever observes the resulting `200`, then validates
   with Zod as today.
 - **Composition with existing retries:** `maxRetries` handles 429/5xx and wraps the injected fetch; x402's
-  402 handling lives *inside* that fetch. No conflict.
+  402 handling lives _inside_ that fetch. No conflict.
 - **Misconfiguration guard:** if a `402` reaches the library's request loop (e.g. `x402: true` but a plain,
   unwrapped `fetch` was passed), map it to a friendly, **non-retryable** `GlassnodeApiError`:
-  *"Payment required — pass an x402-capable fetch (see `glassnode-api/x402`)."* Add `402` to the
+  _"Payment required — pass an x402-capable fetch (see `glassnode-api/x402`)."_ Add `402` to the
   `STATUS_MESSAGES` map.
 - **Over-cap / insufficient funds:** `wrapFetchWithPayment` throws before paying (or the payment fails);
   the error propagates with the client's message through the library's existing error handling.
@@ -161,22 +183,22 @@ const mvrv = await api.callMetric('/market/mvrv', { a: 'BTC', i: '24h' });
 
 - `package.json`:
   - `exports`: add a `"./x402"` subpath (`import` / `require` / `types`).
-  - `peerDependencies`: `x402-fetch` and `viem`, both marked `optional: true` in `peerDependenciesMeta`.
-  - `devDependencies`: add `x402-fetch` and `viem` so `src/x402.ts` type-checks and tests can run.
+  - `peerDependencies`: `@x402/fetch` and `viem`, both marked `optional: true` in `peerDependenciesMeta`.
+  - `devDependencies`: add `@x402/fetch` and `viem` so `src/x402.ts` type-checks and tests can run.
   - `files`: existing globs (`dist/*.js`, `dist/*.d.ts`) already capture the new subpath output.
   - Version: **minor** bump (new backward-compatible feature) + CHANGELOG entry.
-- Node build (`tsc`): compiles `src/x402.ts` as part of `src/**/*` (NodeNext resolves viem/x402-fetch
+- Node build (`tsc`): compiles `src/x402.ts` as part of `src/**/*` (NodeNext resolves viem/@x402/fetch
   subpath exports fine).
 - Browser build (`rollup`): **do not** add `src/x402.ts` to the inputs — the browser bundle stays
   crypto-free. **Required (release-pipeline risk):** `tsconfig.browser.json` uses `include: ["src/**/*"]`
-  with `moduleResolution: node` (classic), which **cannot** resolve viem/x402-fetch `exports`-map subpaths.
+  with `moduleResolution: node` (classic), which **cannot** resolve viem/@x402/fetch `exports`-map subpaths.
   So `src/x402.ts` must be added to `exclude` in `tsconfig.browser.json` (and, defensively, to the
   `@rollup/plugin-typescript` `exclude`), otherwise `build:browser` — and therefore `prepublishOnly` — fails
   to type-check. Add the x402 test file to the same exclude.
 - **Subpath is CJS-only by design.** With no `"type": "module"`, `tsc` emits `dist/x402.js` as CommonJS and
   there is no rollup ESM bundle for the subpath; `import`/`require` both resolve to it. ESM consumers get it
   via Node named-export interop, and its inner dynamic `import()` is the correct CJS→ESM bridge to the
-  ESM-only viem/x402-fetch. No tree-shakeable ESM is expected here.
+  ESM-only viem/@x402/fetch. No tree-shakeable ESM is expected here.
 
 ## Testing (Vitest)
 
@@ -195,14 +217,24 @@ Core (no crypto, no network):
 
 Helper (mock the dynamic imports; no real crypto/network):
 
-- Use `vi.mock('x402-fetch', factory)` / `vi.mock('viem', factory)`. `x402-fetch` and `viem` must be added
+- Use `vi.mock('@x402/fetch', factory)` / `vi.mock('viem', factory)`. `@x402/fetch` and `viem` must be added
   as **devDependencies** so the module specifiers resolve at test time; the "missing deps" case is exercised
   by making the mock factory throw / reject (not by real absence).
 - Missing optional deps → clear install error (via a throwing mock).
-- Default `maxPaymentPerCall` converts to `60000n` (`parseUnits('0.06', 6)`) and is passed as `maxValue`;
-  assert the concrete bigint.
+- Default `maxPaymentPerCall` converts to `60000n` (`parseUnits('0.06', 6)`) and is passed to the client's
+  max-amount option; assert the concrete bigint.
 - Custom `maxPaymentPerCall` passed through.
 - Returns a callable `fetch`.
+
+Testnet integration test (opt-in, real network — **not** in default CI):
+
+- A single end-to-end test against `https://x402.glassnode.tech` (Base Sepolia, `eip155:84532`) that makes
+  one real paid metric call and asserts a validated `200` response.
+- Gated behind an env var (e.g. `X402_TESTNET_PRIVATE_KEY`): skip when unset so unit runs and CI stay
+  hermetic. Requires a Base-Sepolia wallet funded with test USDC.
+- Add a `test:x402` script (or a tagged Vitest project) so it runs on demand, separate from `pnpm test`.
+- Purpose: prove the `@x402/fetch` v2 wiring + `createX402Fetch` actually completes a payment against a
+  live x402 v2 endpoint before shipping.
 
 ## Spend safety (scope of the guard)
 
@@ -222,6 +254,8 @@ will not model a cumulative budget in v1 (a caller can wrap their own counter). 
 
 ## References
 
+- x402 protocol (v2, x402-foundation): https://github.com/x402-foundation/x402 — client package `@x402/fetch`
 - x402 buyer quickstart: https://docs.cdp.coinbase.com/x402/quickstart-for-buyers
-- `x402-fetch` (v1) `wrapFetchWithPayment(fetch, walletClient, maxValue?, selector?)`
 - Glassnode x402 skill: https://x402.glassnode.com/SKILL.md
+- Live challenge shape (verified 2026-07-14): `payment-required` header, base64 JSON, `x402Version: 2`,
+  `accepts: [{ scheme: "exact", network: "eip155:8453" | "eip155:84532", asset: <USDC>, amount: "10000" | "50000", ... }]`
