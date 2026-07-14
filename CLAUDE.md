@@ -14,7 +14,7 @@ This document provides context for Claude when working with this project.
 
 - Use Node.js v24
 - Use pnpm as package manager
-- Run tests with `pnpm test`
+- Run tests with `pnpm test` (Vitest, single run); `pnpm run test:watch` and `pnpm run test:coverage` are also available
 - Lint code with `pnpm run lint`
 - Format code with `pnpm run format`
 - Build the project with `pnpm run build`
@@ -23,10 +23,17 @@ This document provides context for Claude when working with this project.
 ## Coding Standards
 
 - TypeScript for all source files
-- Jest for testing
+- Vitest for testing (config in `vitest.config.ts`; coverage thresholds live there)
 - ESLint and Prettier for code quality
 - Husky for git hooks
 - Zod for runtime validation of API responses and config
+
+### TypeScript version
+
+- Pinned to TypeScript **6.x** (`^6.0.3`), **not** 7.x. TypeScript 7.0 hard-crashes
+  `typescript-eslint` (its peer range caps at `<6.1.0`), which breaks `pnpm run lint` in
+  CI and the Husky pre-commit hook. Only bump to 7.x once `typescript-eslint` ships
+  TypeScript 7 support.
 
 ## API Client
 
@@ -54,3 +61,18 @@ Follow [semver](https://semver.org/):
 - **Node.js**: `tsc` compiles to `dist/` (CommonJS via NodeNext)
 - **Browser**: Rollup produces UMD and ESM minified bundles in `dist/`
 - Config: `tsconfig.json` (Node), `tsconfig.browser.json` (browser), `tsconfig.test.json` (tests/IDE)
+
+## Publishing
+
+- Publishing is automated by `.github/workflows/publish.yml` on every push to `main`.
+- It uses **npm Trusted Publishing (OIDC)** with provenance — there is **no `NPM_TOKEN`
+  secret**. The workflow needs `permissions.id-token: write`, and a Trusted Publisher must
+  be configured for the `glassnode-api` package on npmjs.com (repo
+  `planadecu/glassnode-api-node`, workflow `publish.yml`).
+- npm CLI `>= 11.5.1` performs the OIDC exchange, so the workflow installs the latest npm
+  and publishes with `npm publish` (not `pnpm publish`, which uses the setup-node
+  placeholder token and 404s). The setup-node `.npmrc` is overwritten before publishing so
+  npm authenticates via OIDC instead of the placeholder token.
+- The workflow bumps the patch version and commits it (`[skip ci]`). You should still bump
+  `version` + `CHANGELOG.md` manually per the Versioning rules above for the substantive
+  change; CI adds the release patch bump on top.
