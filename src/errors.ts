@@ -1,6 +1,7 @@
 const STATUS_MESSAGES: Record<number, string> = {
   400: 'Bad request',
   401: 'Invalid or missing API key',
+  402: 'Payment required — pass an x402-capable fetch (see glassnode-api/x402)',
   403: 'Access forbidden — check your API tier',
   404: 'Endpoint or metric not found',
   429: 'Rate limit exceeded',

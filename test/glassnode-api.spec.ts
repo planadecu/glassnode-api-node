@@ -321,6 +321,13 @@ describe('GlassnodeAPI', () => {
       expect(new GlassnodeApiError(401, 'Unauthorized').isRetryable).toBe(false);
     });
 
+    it('gives a helpful 402 message and marks it non-retryable', () => {
+      const err = new GlassnodeApiError(402, 'Payment Required');
+      expect(err.message).toContain('Payment required');
+      expect(err.message).toContain('glassnode-api/x402');
+      expect(err.isRetryable).toBe(false);
+    });
+
     it('should handle network errors', async () => {
       const fetchFn = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
       const api = createApi(fetchFn);
