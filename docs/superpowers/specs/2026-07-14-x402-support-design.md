@@ -29,7 +29,7 @@ core package. x402 tooling is opt-in via a subpath export and optional peer depe
 
 - Let a Node.js caller make paid Glassnode calls through the existing `GlassnodeAPI` client.
 - Keep the core package's footprint unchanged: single runtime dependency (`zod`), browser-friendly.
-- Make the crypto stack (`@x402/fetch`, `viem`) **optional** — installed only by users who make paid calls.
+- Make the crypto stack (`@x402/fetch`, `@x402/evm`, `viem`) **optional** — installed only by users who make paid calls.
 - Provide a built-in spend guard with a safe default.
 
 ## Non-goals (YAGNI)
@@ -49,13 +49,19 @@ core package. x402 tooling is opt-in via a subpath export and optional peer depe
    subpath; the core entry (`glassnode-api`) never imports crypto. Chosen over an all-in-core config
    (leaks crypto into the core module graph; constructors can't `await` a dynamic import) and over a
    separate companion package (extra release pipeline for a small helper).
-2. **x402 client: `@x402/fetch` v2 (x402-foundation).** _Revised from the initial Coinbase `x402-fetch` v1
-   pick — pending final confirmation._ The live Glassnode endpoints return **`x402Version: 2`** with a
-   header-based `payment-required` challenge and CAIP-2 networks (`eip155:8453`); the Coinbase **unscoped
-   `x402-fetch` v1** (x402Version 1, network `"base"`, body-based challenge) cannot parse this, so the
-   scoped **`@x402/fetch` v2** foundation client is required. Its exact wrapper API (the v2 equivalent of
-   `wrapFetchWithPayment` and its max-amount option) is to be confirmed against the installed package
-   during implementation.
+2. **x402 client: `@x402/fetch` v2 + `@x402/evm` (Coinbase CDP-recommended).** The live Glassnode endpoints
+   return **`x402Version: 2`** (header-based `payment-required` challenge, CAIP-2 networks `eip155:8453`).
+   The **Coinbase CDP buyer quickstart itself now installs `@x402/fetch @x402/evm`** — the scoped v2
+   packages are Coinbase's current recommendation; the unscoped `x402-fetch` v1 (x402Version 1, network
+   `"base"`) is the deprecated predecessor and cannot parse a v2 challenge. So "the Coinbase client" and
+   "the foundation v2 client" are the same thing (`@x402/fetch` v2). v2 setup requires registering the
+   exact-EVM scheme and building a client:
+   ```ts
+   import { wrapFetchWithPayment, x402Client } from '@x402/fetch';
+   import { registerExactEvmScheme } from '@x402/evm/exact/client';
+   ```
+   Exact `x402Client` construction and the max-amount mechanism are confirmed against the installed
+   `@x402/fetch`/`@x402/evm` `.d.ts` during implementation (npm readmes are empty).
 3. **Spend safety exposed with a default cap.** `maxPaymentPerCall` (USDC decimal string) defaults to
    `'0.06'` (just above the $0.05 metrics price), converted to atomic units (`parseUnits(value, 6)`) and
    passed to the client's max-amount guard.
@@ -126,25 +132,25 @@ async function createX402Fetch(options: X402FetchOptions): Promise<typeof fetch>
 
 Behavior:
 
-1. Dynamically `import('@x402/fetch')` and (only if needed for signer/units) `import('viem')`. If either
-   module is missing, throw a clear error: _"createX402Fetch requires the optional peer dependencies
-   `@x402/fetch` and `viem`. Install them: `pnpm add @x402/fetch viem`."_ All value imports of the optional
-   deps stay inside the async function; only `import type` references appear at module scope, so importing
-   the subpath without the peers installed does not throw until `createX402Fetch` is actually called.
-2. **Signer:** during implementation, check `@x402/fetch`'s `.d.ts` for the accepted signer type and the
-   exact wrapper name/signature (the v2 equivalent of `wrapFetchWithPayment`). x402 signs an off-chain
-   EIP-3009 authorization (the facilitator submits on-chain), so transport/chain are largely inert. If the
-   wrapper accepts a bare `LocalAccount`, pass `account` directly and do **not** build a wallet client;
-   only if it strictly requires a `WalletClient`, construct a minimal one for the target chain
-   (`base` mainnet / `baseSepolia` testnet). Prefer the bare-account path.
-3. Convert `maxPaymentPerCall` → an atomic-unit cap via `parseUnits(value, 6)` (USDC has 6 decimals),
-   e.g. `parseUnits('0.06', 6) === 60000n`, and pass it to the v2 client's max-amount option (confirm the
-   option's exact name/type against `@x402/fetch`).
-4. Return the wrapped fetch. Its return type is `(input, init?) => Promise<Response>`, which does **not**
-   structurally include `fetch.preconnect`; cast the result `as typeof fetch` so it satisfies the config's
-   `FetchFn` under `strict`.
+1. Dynamically `import('@x402/fetch')`, `import('@x402/evm/exact/client')`, and (for signer/units)
+   `import('viem')`. If any is missing, throw a clear error: _"createX402Fetch requires the optional peer
+   dependencies `@x402/fetch`, `@x402/evm`, and `viem`. Install them: `pnpm add @x402/fetch @x402/evm
+viem`."_ All value imports of the optional deps stay inside the async function; only `import type`
+   references appear at module scope, so importing the subpath without the peers installed does not throw
+   until `createX402Fetch` is actually called.
+2. **Build the v2 client:** `registerExactEvmScheme(...)` then construct the `x402Client` (exact
+   construction confirmed against the installed `.d.ts`). x402 signs an off-chain EIP-3009 authorization
+   (the facilitator submits on-chain), so a bare `LocalAccount` should suffice — pass `account`; only build
+   a viem wallet client if the v2 client strictly requires one.
+3. **Spend cap:** convert `maxPaymentPerCall` → atomic units via `parseUnits(value, 6)` (USDC, 6 decimals),
+   e.g. `parseUnits('0.06', 6) === 60000n`. Verify how v2 expresses the max: if `wrapFetchWithPayment`/the
+   client exposes a max-amount option, use it; if not, enforce it via a payment-requirements selector that
+   **throws when `accepts[].amount` exceeds the cap** before signing. Either way the cap must be honored.
+4. Return `wrapFetchWithPayment(baseFetch, client)`. Its return type is `(input, init?) => Promise<Response>`,
+   which does **not** structurally include `fetch.preconnect`; cast the result `as typeof fetch` so it
+   satisfies the config's `FetchFn` under `strict`.
 
-> The `walletClient` advanced override is intentionally **cut from v1** (YAGNI) — trivially re-addable if a
+> A `walletClient` advanced override is intentionally **cut from v1** (YAGNI) — trivially re-addable if a
 > caller needs a custom transport/chain.
 
 ### Usage (target ergonomics)
@@ -183,8 +189,8 @@ const mvrv = await api.callMetric('/market/mvrv', { a: 'BTC', i: '24h' });
 
 - `package.json`:
   - `exports`: add a `"./x402"` subpath (`import` / `require` / `types`).
-  - `peerDependencies`: `@x402/fetch` and `viem`, both marked `optional: true` in `peerDependenciesMeta`.
-  - `devDependencies`: add `@x402/fetch` and `viem` so `src/x402.ts` type-checks and tests can run.
+  - `peerDependencies`: `@x402/fetch`, `@x402/evm`, and `viem`, all marked `optional: true` in `peerDependenciesMeta`.
+  - `devDependencies`: add `@x402/fetch`, `@x402/evm`, and `viem` so `src/x402.ts` type-checks and tests can run.
   - `files`: existing globs (`dist/*.js`, `dist/*.d.ts`) already capture the new subpath output.
   - Version: **minor** bump (new backward-compatible feature) + CHANGELOG entry.
 - Node build (`tsc`): compiles `src/x402.ts` as part of `src/**/*` (NodeNext resolves viem/@x402/fetch
@@ -254,8 +260,9 @@ will not model a cumulative budget in v1 (a caller can wrap their own counter). 
 
 ## References
 
-- x402 protocol (v2, x402-foundation): https://github.com/x402-foundation/x402 — client package `@x402/fetch`
-- x402 buyer quickstart: https://docs.cdp.coinbase.com/x402/quickstart-for-buyers
+- x402 protocol (v2, x402-foundation): https://github.com/x402-foundation/x402 — client `@x402/fetch` + `@x402/evm`
+- Coinbase CDP buyer quickstart (recommends `@x402/fetch @x402/evm`): https://docs.cdp.coinbase.com/x402/quickstart-for-buyers
+- Coinbase CDP x402 welcome: https://docs.cdp.coinbase.com/x402/welcome
 - Glassnode x402 skill: https://x402.glassnode.com/SKILL.md
 - Live challenge shape (verified 2026-07-14): `payment-required` header, base64 JSON, `x402Version: 2`,
   `accepts: [{ scheme: "exact", network: "eip155:8453" | "eip155:84532", asset: <USDC>, amount: "10000" | "50000", ... }]`
