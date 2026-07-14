@@ -1,6 +1,6 @@
 {
   "name": "glassnode-api",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "Typescript client for the Glassnode API (Node.js and Browser)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -17,11 +17,15 @@
     "type": "git",
     "url": "git+https://github.com/planadecu/glassnode-api-node.git"
   },
+  "bugs": {
+    "url": "https://github.com/planadecu/glassnode-api-node/issues"
+  },
   "scripts": {
     "build": "tsc",
     "build:browser": "rollup -c",
-    "test": "jest",
-    "test:coverage": "jest --coverage",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
     "format": "prettier --write .",
     "prepare": "husky",
@@ -30,35 +34,73 @@
     "version": "pnpm run format && git add -A src",
     "postversion": "git push && git push --tags"
   },
-  "author": "Jordi Planadecursach",
+  "keywords": [
+    "glassnode",
+    "api",
+    "client",
+    "typescript",
+    "javascript",
+    "node",
+    "browser",
+    "crypto",
+    "on-chain",
+    "data",
+    "analytics",
+    "financial",
+    "market",
+    "indicators",
+    "metrics"
+  ],
+  "author": {
+    "name": "Jordi Planadecursach",
+    "email": "jordi.planadecusach@glassnode.com",
+    "url": "https://github.com/planadecu/glassnode-api-node/"
+  },
   "license": "MIT",
+  "homepage": "https://github.com/planadecu/glassnode-api-node#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": "./dist/glassnode-api.esm.min.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public",
+    "tag": "latest",
+    "provenance": true
+  },
   "dependencies": {
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@rollup/plugin-commonjs": "^29.0.2",
+    "@rollup/plugin-commonjs": "^29.0.3",
     "@rollup/plugin-node-resolve": "^16.0.3",
-    "@rollup/plugin-typescript": "^12.3.0",
-    "@types/jest": "^30.0.0",
-    "@types/node": "^24.12.0",
-    "eslint": "^10.0.3",
-    "husky": "^9.1.7",
-    "jest": "^30.2.0",
-    "lint-staged": "^16.3.2",
-    "prettier": "^3.8.1",
-    "rollup": "^4.59.0",
     "@rollup/plugin-terser": "^1.0.0",
-    "ts-jest": "^29.4.6",
+    "@rollup/plugin-typescript": "^12.3.0",
+    "@types/node": "^26.1.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.7.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.8",
+    "prettier": "^3.9.5",
+    "rollup": "^4.62.2",
     "tslib": "^2.8.1",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.57.0"
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.64.0",
+    "vitest": "^4.1.10"
   },
   "lint-staged": {
     "*.{js,ts,mjs}": [
       "eslint --fix",
       "prettier --write",
-      "jest --findRelatedTests --passWithNoTests"
+      "vitest related --run"
     ]
   },
   "pnpm": {

@@ -7,19 +7,25 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # This gives permission to push to the repository
-      packages: write # This gives permission to publish packages
+      contents: write
+      packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }} # Using the built-in token with write permissions
+          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          standalone: true
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          # registry-url is required so npm knows the registry for the OIDC exchange.
+          # npm CLI (>= 11.5.1) detects the OIDC environment and authenticates with it
+          # BEFORE falling back to the setup-node placeholder token, so no NODE_AUTH_TOKEN
+          # is set on the publish step. (pnpm publish does NOT do this — it uses the
+          # placeholder and 404s — which is why we publish with npm below.)
           registry-url: 'https://registry.npmjs.org'
           cache: 'pnpm'
       - name: Configure Git
@@ -27,14 +33,26 @@ jobs:
           git config --global user.name 'GitHub Actions'
           git config --global user.email 'github-actions@github.com'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run build
+      - run: pnpm run lint
       - run: pnpm test
-      - run: pnpm version patch --no-git-tag-version # Skip creating git tag
+      - run: pnpm run build
+      - run: pnpm run build:browser
+      - run: pnpm version patch --no-git-tag-version
       - name: Push changes
         run: |
           git add package.json pnpm-lock.yaml
           git commit -m "Bump version [skip ci]"
           git push
-      - run: pnpm publish --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # setup-node's registry-url writes an .npmrc with `always-auth=true` and a placeholder
+      # `_authToken`, which forces npm to send the fake token instead of doing the OIDC
+      # exchange (→ E404). Overwrite it with just the registry so npm has no token and must
+      # authenticate via OIDC trusted publishing.
+      - name: Clean npmrc so npm uses OIDC (not the placeholder token)
+        run: printf 'registry=https://registry.npmjs.org/\n' > "$NPM_CONFIG_USERCONFIG"
+      # Publish via npm Trusted Publishing (OIDC). npm >= 11.5.1 exchanges the GitHub
+      # id-token (permissions.id-token: write) for a short-lived publish credential and
+      # attaches provenance. Requires a Trusted Publisher configured for this package on
+      # npmjs.com (repo planadecu/glassnode-api-node + workflow file publish.yml).
+      - run: npm install -g npm@latest
+      - run: npm --version
+      - run: npm publish

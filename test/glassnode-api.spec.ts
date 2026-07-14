@@ -1,3 +1,4 @@
+import { describe, it, expect, vi, type Mock } from 'vitest';
 import { GlassnodeAPI } from '../src/glassnode-api';
 import { GlassnodeApiError } from '../src/errors';
 import {
@@ -20,10 +21,10 @@ import {
 } from './mocks/metadata.mock';
 
 function createMockFetch(response: Partial<Response>) {
-  return jest.fn().mockResolvedValue(response);
+  return vi.fn().mockResolvedValue(response);
 }
 
-function createApi(fetchFn: jest.Mock) {
+function createApi(fetchFn: Mock) {
   return new GlassnodeAPI({ apiKey: API_KEY, fetch: fetchFn });
 }
 
@@ -48,10 +49,10 @@ describe('GlassnodeAPI', () => {
     });
 
     it('should accept an optional logger', async () => {
-      const logger = jest.fn();
+      const logger = vi.fn();
       const fetchFn = createMockFetch({
         ok: true,
-        json: jest.fn().mockResolvedValue(mockMetricListResponse),
+        json: vi.fn().mockResolvedValue(mockMetricListResponse),
       });
 
       const api = new GlassnodeAPI({ apiKey: API_KEY, logger, fetch: fetchFn });
@@ -63,7 +64,7 @@ describe('GlassnodeAPI', () => {
     it('should use custom fetch when provided', async () => {
       const fetchFn = createMockFetch({
         ok: true,
-        json: jest.fn().mockResolvedValue(mockMetricListResponse),
+        json: vi.fn().mockResolvedValue(mockMetricListResponse),
       });
 
       const api = createApi(fetchFn);
@@ -79,7 +80,7 @@ describe('GlassnodeAPI', () => {
     it('should fetch asset metadata', async () => {
       const fetchFn = createMockFetch({
         ok: true,
-        json: jest.fn().mockResolvedValue({ data: mockAssetMetadataResponse }),
+        json: vi.fn().mockResolvedValue({ data: mockAssetMetadataResponse }),
       });
 
       const api = createApi(fetchFn);
@@ -110,7 +111,7 @@ describe('GlassnodeAPI', () => {
     it('should fetch metric metadata', async () => {
       const fetchFn = createMockFetch({
         ok: true,
-        json: jest.fn().mockResolvedValue(mockRawMetricMetadataResponse),
+        json: vi.fn().mockResolvedValue(mockRawMetricMetadataResponse),
       });
 
       const api = createApi(fetchFn);
@@ -129,7 +130,7 @@ describe('GlassnodeAPI', () => {
     it('should handle optional params', async () => {
       const fetchFn = createMockFetch({
         ok: true,
-        json: jest.fn().mockResolvedValue(mockRawMetricMetadataResponse),
+        json: vi.fn().mockResolvedValue(mockRawMetricMetadataResponse),
       });
 
       const api = createApi(fetchFn);
@@ -160,7 +161,7 @@ describe('GlassnodeAPI', () => {
     it('should fetch metric list', async () => {
       const fetchFn = createMockFetch({
         ok: true,
-        json: jest.fn().mockResolvedValue(mockMetricListResponse),
+        json: vi.fn().mockResolvedValue(mockMetricListResponse),
       });
 
       const api = createApi(fetchFn);
@@ -192,7 +193,7 @@ describe('GlassnodeAPI', () => {
       const mockData = [{ t: 1609459200, v: 29000 }];
       const fetchFn = createMockFetch({
         ok: true,
-        json: jest.fn().mockResolvedValue(mockData),
+        json: vi.fn().mockResolvedValue(mockData),
       });
 
       const api = createApi(fetchFn);
@@ -235,7 +236,7 @@ describe('GlassnodeAPI', () => {
       ];
       const fetchFn = createMockFetch({
         ok: true,
-        json: jest.fn().mockResolvedValue({ data: mockData }),
+        json: vi.fn().mockResolvedValue({ data: mockData }),
       });
 
       const api = createApi(fetchFn);
@@ -281,7 +282,7 @@ describe('GlassnodeAPI', () => {
 
       try {
         await api.getMetricList();
-        fail('Expected GlassnodeApiError to be thrown');
+        expect.fail('Expected GlassnodeApiError to be thrown');
       } catch (error) {
         expect(error).toBeInstanceOf(GlassnodeApiError);
         const apiError = error as GlassnodeApiError;
@@ -305,7 +306,7 @@ describe('GlassnodeAPI', () => {
 
         try {
           await api.getMetricList();
-          fail(`Expected error for status ${status}`);
+          expect.fail(`Expected error for status ${status}`);
         } catch (error) {
           expect((error as GlassnodeApiError).message).toContain(expected);
         }
@@ -321,7 +322,7 @@ describe('GlassnodeAPI', () => {
     });
 
     it('should handle network errors', async () => {
-      const fetchFn = jest.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+      const fetchFn = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
       const api = createApi(fetchFn);
 
       await expect(api.getMetricList()).rejects.toThrow('Glassnode API error: Failed to fetch');
@@ -329,7 +330,7 @@ describe('GlassnodeAPI', () => {
 
     it('should preserve error cause', async () => {
       const networkError = new TypeError('Failed to fetch');
-      const fetchFn = jest.fn().mockRejectedValue(networkError);
+      const fetchFn = vi.fn().mockRejectedValue(networkError);
       const api = createApi(fetchFn);
 
       try {
@@ -343,12 +344,12 @@ describe('GlassnodeAPI', () => {
 
   describe('retry logic', () => {
     it('should retry on 429 and succeed', async () => {
-      const fetchFn = jest
+      const fetchFn = vi
         .fn()
         .mockResolvedValueOnce({ ok: false, status: 429, statusText: 'Too Many Requests' })
         .mockResolvedValueOnce({
           ok: true,
-          json: jest.fn().mockResolvedValue(mockMetricListResponse),
+          json: vi.fn().mockResolvedValue(mockMetricListResponse),
         });
 
       const api = new GlassnodeAPI({
@@ -364,12 +365,12 @@ describe('GlassnodeAPI', () => {
     });
 
     it('should retry on 500 and succeed', async () => {
-      const fetchFn = jest
+      const fetchFn = vi
         .fn()
         .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' })
         .mockResolvedValueOnce({
           ok: true,
-          json: jest.fn().mockResolvedValue(mockMetricListResponse),
+          json: vi.fn().mockResolvedValue(mockMetricListResponse),
         });
 
       const api = new GlassnodeAPI({
@@ -385,7 +386,7 @@ describe('GlassnodeAPI', () => {
     });
 
     it('should throw after exhausting retries', async () => {
-      const fetchFn = jest.fn().mockResolvedValue({
+      const fetchFn = vi.fn().mockResolvedValue({
         ok: false,
         status: 429,
         statusText: 'Too Many Requests',
@@ -403,7 +404,7 @@ describe('GlassnodeAPI', () => {
     });
 
     it('should not retry on 401', async () => {
-      const fetchFn = jest.fn().mockResolvedValue({
+      const fetchFn = vi.fn().mockResolvedValue({
         ok: false,
         status: 401,
         statusText: 'Unauthorized',
@@ -421,12 +422,12 @@ describe('GlassnodeAPI', () => {
     });
 
     it('should retry on network errors', async () => {
-      const fetchFn = jest
+      const fetchFn = vi
         .fn()
         .mockRejectedValueOnce(new TypeError('Failed to fetch'))
         .mockResolvedValueOnce({
           ok: true,
-          json: jest.fn().mockResolvedValue(mockMetricListResponse),
+          json: vi.fn().mockResolvedValue(mockMetricListResponse),
         });
 
       const api = new GlassnodeAPI({
