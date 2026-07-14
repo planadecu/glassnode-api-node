@@ -442,4 +442,42 @@ describe('GlassnodeAPI', () => {
       expect(result).toEqual(mockMetricListResponse);
     });
   });
+
+  describe('x402 mode', () => {
+    const okFetch = () =>
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(mockMetricListResponse),
+      });
+
+    it('routes to the x402 host when x402 is true', async () => {
+      const fetchFn = okFetch();
+      const api = new GlassnodeAPI({ x402: true, fetch: fetchFn });
+      await api.getMetricList();
+      expect(fetchFn).toHaveBeenCalledWith(
+        expect.stringContaining('https://x402.glassnode.com/v1/metadata/metrics')
+      );
+    });
+
+    it('omits api_key when no apiKey is set', async () => {
+      const fetchFn = okFetch();
+      const api = new GlassnodeAPI({ x402: true, fetch: fetchFn });
+      await api.getMetricList();
+      const calledUrl = fetchFn.mock.calls[0][0] as string;
+      expect(calledUrl).not.toContain('api_key');
+    });
+
+    it('an explicit apiUrl overrides the x402 preset', async () => {
+      const fetchFn = okFetch();
+      const api = new GlassnodeAPI({
+        x402: true,
+        apiUrl: 'https://x402.glassnode.tech',
+        fetch: fetchFn,
+      });
+      await api.getMetricList();
+      expect(fetchFn).toHaveBeenCalledWith(
+        expect.stringContaining('https://x402.glassnode.tech/v1/metadata/metrics')
+      );
+    });
+  });
 });

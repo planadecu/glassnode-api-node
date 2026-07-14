@@ -1,4 +1,11 @@
-import { GlassnodeConfig, GlassnodeConfigSchema, Logger, FetchFn } from './types/config';
+import {
+  GlassnodeConfig,
+  GlassnodeConfigSchema,
+  Logger,
+  FetchFn,
+  DEFAULT_API_URL,
+  X402_API_URL,
+} from './types/config';
 import { GlassnodeApiError } from './errors';
 import {
   AssetMetadataResponse,
@@ -15,7 +22,7 @@ import {
  * Glassnode API client
  */
 export class GlassnodeAPI {
-  private apiKey: string;
+  private apiKey: string | undefined;
   private apiUrl: string;
   private logger?: Logger;
   private fetchFn: FetchFn;
@@ -31,7 +38,7 @@ export class GlassnodeAPI {
     const validatedConfig = GlassnodeConfigSchema.parse(config);
 
     this.apiKey = validatedConfig.apiKey;
-    this.apiUrl = validatedConfig.apiUrl;
+    this.apiUrl = validatedConfig.apiUrl ?? (validatedConfig.x402 ? X402_API_URL : DEFAULT_API_URL);
     this.logger = validatedConfig.logger as Logger | undefined;
     this.fetchFn = (validatedConfig.fetch as FetchFn) ?? globalThis.fetch;
     this.maxRetries = validatedConfig.maxRetries;
@@ -47,7 +54,7 @@ export class GlassnodeAPI {
   private async request<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
     const queryParams = new URLSearchParams({
       ...params,
-      api_key: this.apiKey,
+      ...(this.apiKey ? { api_key: this.apiKey } : {}),
     });
 
     const url = `${this.apiUrl}${endpoint}?${queryParams}`;
