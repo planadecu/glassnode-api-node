@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.7.5
+## 0.7.7
+
+- Fix transitive dev-dependency vulnerabilities via `pnpm.overrides`: `flatted` ≥3.4.2 (high), `serialize-javascript` ≥7.0.5, `picomatch` ≥4.0.4, `brace-expansion` ≥5.0.6 — `pnpm audit` now clean
+- README: lead with the Node.js/console usage; move browser (UMD/ESM) usage into its own section
+- Replace the broken Bundlephobia size badge with a bundlejs min+gzip bundle-size badge
+
+## 0.7.6
 
 - Migrate test runner from Jest to Vitest (`vitest.config.ts`, `test:watch`/`test:coverage` scripts); remove `jest`, `ts-jest`, `@types/jest`
 - Upgrade dependencies: `zod` 4.4.3, `typescript` 6.0.3, `eslint` 10.7.0, `typescript-eslint` 8.64.0, `prettier` 3.9.5, `rollup` 4.62.2, `@types/node` 26.1.1, `lint-staged` 17.0.8, `@rollup/plugin-commonjs` 29.0.3

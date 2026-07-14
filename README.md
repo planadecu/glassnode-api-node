@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/glassnode-api.svg)](https://www.npmjs.com/package/glassnode-api)
 [![npm downloads](https://img.shields.io/npm/dm/glassnode-api.svg)](https://www.npmjs.com/package/glassnode-api)
-[![minzipped size](https://img.shields.io/bundlephobia/minzip/glassnode-api.svg)](https://bundlephobia.com/package/glassnode-api)
+[![minzipped size](https://img.shields.io/bundlejs/size/glassnode-api)](https://bundlejs.com/?q=glassnode-api)
 [![types included](https://img.shields.io/npm/types/glassnode-api.svg)](https://www.npmjs.com/package/glassnode-api)
 [![CI](https://github.com/planadecu/glassnode-api-node/actions/workflows/ci.yml/badge.svg)](https://github.com/planadecu/glassnode-api-node/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/glassnode-api.svg)](./LICENSE)
@@ -38,6 +38,7 @@ const btcPrice = await api.callMetric('/market/price_usd_close', { a: 'BTC' });
 - [Error Handling](#error-handling)
 - [Retries](#retries)
 - [Bulk Metrics](#bulk-metrics)
+- [Browser](#browser)
 - [Examples](#examples)
 - [Development](#development)
 - [License](#license)
@@ -57,25 +58,6 @@ yarn add glassnode-api
 
 You'll need a Glassnode API key — create one from your
 [Glassnode account](https://studio.glassnode.com/).
-
-### Browser (UMD)
-
-```html
-<script src="https://unpkg.com/glassnode-api/dist/glassnode-api.umd.min.js"></script>
-<script>
-  const api = new GlassnodeAPI.GlassnodeAPI({ apiKey: 'YOUR_API_KEY' });
-</script>
-```
-
-### Browser (ESM)
-
-```html
-<script type="module">
-  import { GlassnodeAPI } from 'https://unpkg.com/glassnode-api/dist/glassnode-api.esm.min.js';
-
-  const api = new GlassnodeAPI({ apiKey: 'YOUR_API_KEY' });
-</script>
-```
 
 ## Quick Start
 
@@ -173,6 +155,31 @@ snapshots across the whole market:
 const marketcaps = await api.callBulkMetric('/market/marketcap_usd');
 // [{ t: 1609459200, bulk: [{ a: 'BTC', v: 600000000000 }, { a: 'ETH', v: 100000000000 }] }]
 ```
+
+## Browser
+
+The library ships prebuilt UMD and ESM bundles, so it also runs directly in the browser
+without a build step.
+
+```html
+<!-- UMD -->
+<script src="https://unpkg.com/glassnode-api/dist/glassnode-api.umd.min.js"></script>
+<script>
+  const api = new GlassnodeAPI.GlassnodeAPI({ apiKey: 'YOUR_API_KEY' });
+</script>
+```
+
+```html
+<!-- ESM -->
+<script type="module">
+  import { GlassnodeAPI } from 'https://unpkg.com/glassnode-api/dist/glassnode-api.esm.min.js';
+
+  const api = new GlassnodeAPI({ apiKey: 'YOUR_API_KEY' });
+</script>
+```
+
+> Your API key is exposed to end users in browser code. Only ship it in trusted,
+> first-party contexts — otherwise proxy Glassnode requests through your own backend.
 
 ## Examples
 
