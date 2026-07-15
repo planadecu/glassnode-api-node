@@ -324,6 +324,9 @@ describe('GlassnodeAPI', () => {
     it('gives a helpful 402 message and marks it non-retryable', () => {
       const err = new GlassnodeApiError(402, 'Payment Required');
       expect(err.message).toContain('Payment required');
+      // Covers the funded-but-failed x402 case (payment did not settle), not only "no wrapper"
+      expect(err.message).toContain('USDC');
+      expect(err.message).toContain('maxPaymentPerCall');
       expect(err.message).toContain('glassnode-api/x402');
       expect(err.isRetryable).toBe(false);
     });
