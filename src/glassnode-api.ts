@@ -18,6 +18,11 @@ import {
   BulkResponseSchema,
 } from './types/metadata';
 
+/** Mask the `api_key` query-param value so it never reaches logs. */
+function redactApiKey(url: string): string {
+  return url.replace(/([?&]api_key=)[^&]+/gi, '$1***');
+}
+
 /**
  * Glassnode API client
  */
@@ -67,7 +72,7 @@ export class GlassnodeAPI {
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
 
-      this.logger?.('API call:', url);
+      this.logger?.('API call:', redactApiKey(url));
 
       try {
         const response = await this.fetchFn(url);

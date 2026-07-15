@@ -61,6 +61,21 @@ describe('GlassnodeAPI', () => {
       expect(logger).toHaveBeenCalledWith('API call:', expect.stringContaining(DEFAULT_API_URL));
     });
 
+    it('redacts the api_key in logged URLs', async () => {
+      const logger = vi.fn();
+      const fetchFn = createMockFetch({
+        ok: true,
+        json: vi.fn().mockResolvedValue(mockMetricListResponse),
+      });
+
+      const api = new GlassnodeAPI({ apiKey: API_KEY, logger, fetch: fetchFn });
+      await api.getMetricList();
+
+      const logged = logger.mock.calls.find((c) => c[0] === 'API call:')?.[1] as string;
+      expect(logged).toContain('api_key=***');
+      expect(logged).not.toContain(API_KEY);
+    });
+
     it('should use custom fetch when provided', async () => {
       const fetchFn = createMockFetch({
         ok: true,
