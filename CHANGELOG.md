@@ -8,6 +8,8 @@
   `viem`) is an optional peer dependency; the core package stays `zod`-only.
 - `apiKey` is now optional when `x402` is enabled; `fetch` is required in that mode.
 - Add a friendly `402` error message. Bulk metrics remain free-API only (unsupported over x402).
+- `GlassnodeApiError` now surfaces the server's error-body message (e.g. "Resolution 1h is not
+  allowed") and exposes it on `.detail`, instead of only a generic status message.
 
 ## 0.7.7
 
