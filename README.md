@@ -240,7 +240,7 @@ See the [examples directory](./examples/README.md) for detailed usage patterns.
 ```bash
 cd examples
 cp .env.example .env  # add your API key
-pnpm dlx ts-node metadata.validation.ts
+pnpm dlx ts-node ex.metadata.validation.ts
 ```
 
 ## Development
