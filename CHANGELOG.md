@@ -10,6 +10,8 @@
 - Add a friendly `402` error message. Bulk metrics remain free-API only (unsupported over x402).
 - `GlassnodeApiError` now surfaces the server's error-body message (e.g. "Resolution 1h is not
   allowed") and exposes it on `.detail`, instead of only a generic status message.
+- **Security:** redact the `api_key` query-param value in URLs passed to the optional `logger`
+  (previously the key could leak into log sinks).
 
 ## 0.7.7
 
