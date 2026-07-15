@@ -1,6 +1,6 @@
 {
   "name": "glassnode-api",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Typescript client for the Glassnode API (Node.js and Browser)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -91,9 +91,15 @@
     "viem": "^2.48.11"
   },
   "peerDependenciesMeta": {
-    "@x402/fetch": { "optional": true },
-    "@x402/evm": { "optional": true },
-    "viem": { "optional": true }
+    "@x402/fetch": {
+      "optional": true
+    },
+    "@x402/evm": {
+      "optional": true
+    },
+    "viem": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
