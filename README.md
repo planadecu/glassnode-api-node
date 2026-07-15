@@ -203,7 +203,8 @@ const mvrv = await api.callMetric('/market/mvrv', { a: 'BTC', i: '24h' });
 
 - **Bulk metrics are not available over x402** — `callBulkMetric()` only works against the free
   `api.glassnode.com`.
-- **Testnet:** target Base Sepolia by passing `apiUrl: 'https://x402.glassnode.tech'`.
+- **Other endpoints:** target a non-default x402 endpoint (e.g. a testnet) by passing its URL as
+  `apiUrl`.
 - **Browser** signing is not supported yet (planned).
 
 ## Browser

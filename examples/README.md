@@ -53,26 +53,26 @@ npx ts-node metric.dump.ts
 Demonstrates the **x402 paid API** (no API key — you pay per call in USDC on Base):
 
 - Build a payment-capable `fetch` from a funded Base wallet (`createX402Fetch`)
-- Hit the **metadata** endpoint ($0.01) to confirm the asset + `1h` are supported
-- Fetch **active addresses** for the asset, last 1 month at `1h` resolution ($0.05)
-- Switch between testnet (Base Sepolia) and mainnet (Base) via env
+- Hit the **metadata** endpoint ($0.01) to confirm the asset + resolution are supported
+- Fetch **active addresses** for the asset, last 1 month at `24h` resolution ($0.05)
+- Defaults to **mainnet**; point at a different x402 endpoint by setting `X402_API_URL` yourself
 
-Defaults to **ETH** (supported on testnet). Override with `X402_ASSET` — e.g. `SUI`, which is
-only offered on **mainnet** for this metric (the metadata check will tell you and skip the paid
-query if an asset isn't supported).
+Defaults to **ETH** at `24h` (`active_count` rejects `1h`). Override the metric/asset/resolution
+with `X402_METRIC` / `X402_ASSET` / `X402_RESOLUTION`; the metadata check skips the paid query if
+the asset isn't supported.
 
 Set these in `.env` (see `.env.example`):
 
 ```
-X402_NETWORK=testnet                 # testnet | mainnet
 X402_ASSET=ETH                       # optional, asset symbol (default ETH)
 X402_PRIVATE_KEY=0xyour_funded_wallet_private_key
 X402_MAX_PAYMENT=0.06                # optional, per-call USDC ceiling
+# X402_API_URL=<endpoint>            # optional endpoint override (supply yourself; not committed)
 ```
 
-> **Wallet safety:** use a dedicated, funded-but-limited wallet — never a primary key. On testnet
-> fund it with Base Sepolia test USDC; on mainnet it spends real USDC. `X402_MAX_PAYMENT` caps each
-> call, not total spend. Start on `testnet`, then set `X402_NETWORK=mainnet`.
+> **Wallet safety:** use a dedicated, funded-but-limited wallet — never a primary key. On mainnet it
+> spends real USDC; on a testnet endpoint fund the wallet with Base Sepolia test USDC. `X402_MAX_PAYMENT`
+> caps each call, not total spend.
 
 Run with:
 

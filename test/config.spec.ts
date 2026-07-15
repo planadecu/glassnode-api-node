@@ -1,16 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import {
-  GlassnodeConfigSchema,
-  DEFAULT_API_URL,
-  X402_API_URL,
-  X402_TESTNET_API_URL,
-} from '../src/types/config';
+import { GlassnodeConfigSchema, DEFAULT_API_URL, X402_API_URL } from '../src/types/config';
 
 describe('GlassnodeConfigSchema', () => {
   it('exposes the URL constants', () => {
     expect(DEFAULT_API_URL).toBe('https://api.glassnode.com');
     expect(X402_API_URL).toBe('https://x402.glassnode.com');
-    expect(X402_TESTNET_API_URL).toBe('https://x402.glassnode.tech');
   });
 
   it('requires apiKey when x402 is not enabled', () => {

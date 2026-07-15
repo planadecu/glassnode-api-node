@@ -1,18 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { privateKeyToAccount } from 'viem/accounts';
 import { GlassnodeAPI } from '../src/glassnode-api';
-import { X402_TESTNET_API_URL } from '../src/types/config';
 import { createX402Fetch } from '../src/x402';
 
 const KEY = process.env.X402_TESTNET_PRIVATE_KEY;
+// The testnet endpoint URL is supplied via env (not hardcoded); skip if absent.
+const TESTNET_URL = process.env.X402_TESTNET_URL;
 
-// Requires a Base-Sepolia wallet funded with test USDC. Skipped unless the key is provided.
-describe.skipIf(!KEY)('x402 testnet integration', () => {
+// Requires a Base-Sepolia wallet funded with test USDC + the testnet endpoint URL.
+describe.skipIf(!KEY || !TESTNET_URL)('x402 testnet integration', () => {
   it('pays for a metric on the testnet endpoint and returns validated data', async () => {
     const account = privateKeyToAccount(KEY as `0x${string}`);
     const api = new GlassnodeAPI({
       x402: true,
-      apiUrl: X402_TESTNET_API_URL,
+      apiUrl: TESTNET_URL,
       fetch: await createX402Fetch({ account, maxPaymentPerCall: '0.06' }),
     });
 

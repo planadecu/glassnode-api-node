@@ -13,7 +13,7 @@
 - **Node ≥ 18**; developed on Node 24; pnpm is the package manager.
 - **TypeScript pinned to 6.x** (`^6.0.3`) — do NOT bump to 7 (breaks typescript-eslint).
 - **Core package stays `zod`-only at runtime.** `@x402/fetch`, `@x402/evm`, `viem` are **optional peer dependencies** (+ devDependencies for build/test). Never import them from any file other than `src/x402.ts`, and only via dynamic `import()` / `import type`.
-- **Verified pricing/protocol (do not re-derive):** endpoints return `x402Version: 2`, scheme `exact`, USDC atomic amounts (6 decimals): metadata `/v1/metadata/*` = `10000` ($0.01), metrics `/v1/metrics/*` = `50000` ($0.05). Mainnet network `eip155:8453` (`https://x402.glassnode.com`), testnet `eip155:84532` / Base Sepolia (`https://x402.glassnode.tech`).
+- **Verified pricing/protocol (do not re-derive):** endpoints return `x402Version: 2`, scheme `exact`, USDC atomic amounts (6 decimals): metadata `/v1/metadata/*` = `10000` ($0.01), metrics `/v1/metrics/*` = `50000` ($0.05). Mainnet network `eip155:8453` (`https://x402.glassnode.com`), testnet `eip155:84532` / Base Sepolia (`a testnet x402 endpoint`).
 - **Bulk is unsupported over x402** (`/bulk` 404s); no special handling — document only.
 - Every commit runs the Husky pre-commit hook (eslint + prettier + vitest related). Keep lint/format clean.
 - Follow existing code style (2-space, single quotes, semicolons; Prettier-enforced).
@@ -71,7 +71,7 @@ describe('GlassnodeConfigSchema', () => {
   it('exposes the URL constants', () => {
     expect(DEFAULT_API_URL).toBe('https://api.glassnode.com');
     expect(X402_API_URL).toBe('https://x402.glassnode.com');
-    expect(X402_TESTNET_API_URL).toBe('https://x402.glassnode.tech');
+    expect(X402_TESTNET_API_URL).toBe('a testnet x402 endpoint');
   });
 
   it('requires apiKey when x402 is not enabled', () => {
@@ -128,12 +128,12 @@ describe('x402 mode', () => {
     const fetchFn = okFetch();
     const api = new GlassnodeAPI({
       x402: true,
-      apiUrl: 'https://x402.glassnode.tech',
+      apiUrl: 'a testnet x402 endpoint',
       fetch: fetchFn,
     });
     await api.getMetricList();
     expect(fetchFn).toHaveBeenCalledWith(
-      expect.stringContaining('https://x402.glassnode.tech/v1/metadata/metrics')
+      expect.stringContaining('a testnet x402 endpoint/v1/metadata/metrics')
     );
   });
 });
@@ -166,7 +166,7 @@ export const DEFAULT_API_URL = 'https://api.glassnode.com';
 /** x402 (paid) Glassnode API base URL — Base mainnet. */
 export const X402_API_URL = 'https://x402.glassnode.com';
 /** x402 testnet base URL — Base Sepolia. */
-export const X402_TESTNET_API_URL = 'https://x402.glassnode.tech';
+export const X402_TESTNET_API_URL = 'a testnet x402 endpoint';
 
 /**
  * Zod schema for Glassnode API configuration
@@ -732,7 +732,7 @@ const mvrv = await api.callMetric('/market/mvrv', { a: 'BTC', i: '24h' });
 
 - **Bulk metrics are not available over x402** — `callBulkMetric()` only works against the free
   `api.glassnode.com`.
-- **Testnet:** target Base Sepolia by passing `apiUrl: 'https://x402.glassnode.tech'`.
+- **Testnet:** target Base Sepolia by passing `apiUrl: 'a testnet x402 endpoint'`.
 - **Browser** signing is not supported yet (planned).
 ````
 

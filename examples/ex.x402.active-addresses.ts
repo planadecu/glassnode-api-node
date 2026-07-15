@@ -6,17 +6,20 @@
  *   2. Hit the METADATA endpoint ($0.01) to confirm the metric supports the asset + resolution.
  *   3. Hit the METRIC endpoint ($0.05) for the last month of data at that resolution.
  *
- * Defaults: ETH active addresses at 24h on testnet.
+ * Defaults to mainnet. Set X402_API_URL to point at a different x402 endpoint (e.g. a
+ * testnet); the same wallet/account works on either since payment schemes for both Base
+ * mainnet and Base Sepolia are registered.
+ *
  * Notes:
  *   - active_count only allows 24h/1w/1month on the x402 endpoint — i=1h returns HTTP 403
  *     "Resolution 1h is not allowed" (the metadata `parameters.i` list can be broader than
  *     what the endpoint actually serves).
- *   - Some assets (e.g. SUI) are only offered on mainnet for a given metric — the metadata
- *     check reports this and skips the paid query.
+ *   - Some assets (e.g. SUI) may only be offered on certain endpoints for a given metric —
+ *     the metadata check reports this and skips the paid query.
  *   - X402_SKIP_METADATA=1 makes a single paid metric call (no metadata call first).
  *
  * Env (examples/.env):
- *   X402_NETWORK        testnet | mainnet          (default: testnet)
+ *   X402_API_URL        optional x402 endpoint override (default: built-in mainnet)
  *   X402_METRIC         metric path                (default: /addresses/active_count)
  *   X402_ASSET          asset symbol               (default: ETH)
  *   X402_RESOLUTION     24h | 1w | 1month          (default: 24h; 1h is not allowed)
@@ -26,13 +29,13 @@
  *
  * Run:  npx ts-node ex.x402.active-addresses.ts
  */
-import { GlassnodeAPI, X402_TESTNET_API_URL } from '../src';
+import { GlassnodeAPI } from '../src';
 import { createX402Fetch } from '../src/x402';
 import { privateKeyToAccount } from 'viem/accounts';
 import 'dotenv/config';
 
-const NETWORK = (process.env.X402_NETWORK ?? 'testnet').toLowerCase();
 const PRIVATE_KEY = process.env.X402_PRIVATE_KEY;
+const API_URL = process.env.X402_API_URL; // optional endpoint override; unset → built-in mainnet
 const MAX_PAYMENT = process.env.X402_MAX_PAYMENT ?? '0.06';
 const METRIC = process.env.X402_METRIC ?? '/addresses/active_count';
 const ASSET = (process.env.X402_ASSET ?? 'ETH').toUpperCase();
@@ -46,17 +49,14 @@ async function main(): Promise<void> {
       'X402_PRIVATE_KEY is required — set it in examples/.env to a funded Base wallet private key (0x...).'
     );
   }
-  if (NETWORK !== 'testnet' && NETWORK !== 'mainnet') {
-    throw new Error(`X402_NETWORK must be "testnet" or "mainnet" (got "${NETWORK}").`);
-  }
 
   const account = privateKeyToAccount(PRIVATE_KEY as `0x${string}`);
-  console.log(`x402 ${NETWORK} — wallet ${account.address}`);
+  console.log(`x402 ${API_URL ? 'endpoint override' : 'mainnet'} — wallet ${account.address}`);
   console.log(`${METRIC}  asset=${ASSET}  i=${RESOLUTION}  cap=$${MAX_PAYMENT}\n`);
 
   const api = new GlassnodeAPI({
-    x402: true, // defaults to mainnet (https://x402.glassnode.com)
-    ...(NETWORK === 'testnet' ? { apiUrl: X402_TESTNET_API_URL } : {}),
+    x402: true, // defaults to the built-in mainnet endpoint
+    ...(API_URL ? { apiUrl: API_URL } : {}),
     fetch: await createX402Fetch({ account, maxPaymentPerCall: MAX_PAYMENT }),
     logger: console.log,
   });
@@ -85,7 +85,7 @@ async function main(): Promise<void> {
           assets.length > 12 ? ', …' : ''
         }`
       );
-      console.warn('  Set X402_ASSET=<symbol> (or X402_NETWORK=mainnet) and re-run.');
+      console.warn('  Set X402_ASSET=<symbol> and re-run.');
       return;
     }
   }

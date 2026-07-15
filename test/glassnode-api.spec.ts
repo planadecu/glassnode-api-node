@@ -533,12 +533,12 @@ describe('GlassnodeAPI', () => {
       const fetchFn = okFetch();
       const api = new GlassnodeAPI({
         x402: true,
-        apiUrl: 'https://x402.glassnode.tech',
+        apiUrl: 'https://x402.example.test',
         fetch: fetchFn,
       });
       await api.getMetricList();
       expect(fetchFn).toHaveBeenCalledWith(
-        expect.stringContaining('https://x402.glassnode.tech/v1/metadata/metrics')
+        expect.stringContaining('https://x402.example.test/v1/metadata/metrics')
       );
     });
   });

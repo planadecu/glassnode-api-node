@@ -14,8 +14,7 @@ export type FetchFn = typeof fetch;
 export const DEFAULT_API_URL = 'https://api.glassnode.com';
 /** x402 (paid) Glassnode API base URL — Base mainnet. */
 export const X402_API_URL = 'https://x402.glassnode.com';
-/** x402 testnet base URL — Base Sepolia. */
-export const X402_TESTNET_API_URL = 'https://x402.glassnode.tech';
+// A testnet/staging x402 endpoint is not hardcoded here — pass its URL via the `apiUrl` config option.
 
 /**
  * Zod schema for Glassnode API configuration
