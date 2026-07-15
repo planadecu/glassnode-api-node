@@ -48,6 +48,36 @@ Run with:
 npx ts-node metric.dump.ts
 ```
 
+### x402 Paid Calls — Active Addresses (`ex.x402.active-addresses.ts`)
+
+Demonstrates the **x402 paid API** (no API key — you pay per call in USDC on Base):
+
+- Build a payment-capable `fetch` from a funded Base wallet (`createX402Fetch`)
+- Hit the **metadata** endpoint ($0.01) to confirm the asset + resolution are supported
+- Fetch **active addresses** for the asset (default **BTC**), last 1 month at `24h` ($0.05)
+- Defaults to **mainnet**; point at a different x402 endpoint by setting `X402_API_URL`
+
+Defaults to BTC at `24h` (`active_count` rejects `1h`). The metric/asset/resolution are overridable
+via env — see the script header; the metadata check skips the paid query if the asset isn't supported.
+
+Set these in `.env` (see `.env.example`):
+
+```
+X402_PRIVATE_KEY=0xyour_funded_wallet_private_key
+X402_MAX_PAYMENT=0.06                     # optional, per-call USDC ceiling
+X402_API_URL=https://x402.glassnode.com   # x402 endpoint (mainnet); point elsewhere to use another
+```
+
+> **Wallet safety:** use a dedicated, funded-but-limited wallet — never a primary key. On mainnet it
+> spends real USDC; on a testnet endpoint fund the wallet with Base Sepolia test USDC. `X402_MAX_PAYMENT`
+> caps each call, not total spend.
+
+Run with:
+
+```bash
+npx ts-node ex.x402.active-addresses.ts
+```
+
 ## Dependencies
 
 The examples use:
@@ -55,6 +85,7 @@ The examples use:
 - `dotenv` - For loading environment variables
 - `ts-node` - For running TypeScript files directly
 - `zod` - For schema validation (used in metadata.validation.ts)
+- `@x402/fetch`, `@x402/evm`, `viem` - For the x402 paid-API example (payment signing on Base)
 
 ## Adding New Examples
 

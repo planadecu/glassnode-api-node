@@ -38,6 +38,7 @@ const btcPrice = await api.callMetric('/market/price_usd_close', { a: 'BTC' });
 - [Error Handling](#error-handling)
 - [Retries](#retries)
 - [Bulk Metrics](#bulk-metrics)
+- [Paid calls with x402](#paid-calls-with-x402)
 - [Browser](#browser)
 - [Examples](#examples)
 - [Development](#development)
@@ -89,16 +90,17 @@ const data = await api.callMetric('/market/price_usd_close', {
 
 `new GlassnodeAPI(config)`
 
-| Option       | Type                                            | Default                     | Description                                             |
-| ------------ | ----------------------------------------------- | --------------------------- | ------------------------------------------------------- |
-| `apiKey`     | `string`                                        | — (**required**)            | Your Glassnode API key                                  |
-| `apiUrl`     | `string`                                        | `https://api.glassnode.com` | Base URL for the API                                    |
-| `logger`     | `(message: string, ...args: unknown[]) => void` | —                           | Callback for debug logging (e.g. `console.log`)         |
-| `fetch`      | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (custom headers, testing…)  |
-| `maxRetries` | `number`                                        | `0`                         | Retries for retryable errors (`429`, `5xx`)             |
-| `retryDelay` | `number`                                        | `1000`                      | Base delay in ms between retries (doubles each attempt) |
+| Option       | Type                                            | Default                     | Description                                                                              |
+| ------------ | ----------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------- |
+| `apiKey`     | `string`                                        | — (required unless `x402`)  | Your Glassnode API key                                                                   |
+| `apiUrl`     | `string`                                        | `https://api.glassnode.com` | Base URL for the API                                                                     |
+| `x402`       | `boolean`                                       | `false`                     | Route through the paid x402 endpoint (see [Paid calls with x402](#paid-calls-with-x402)) |
+| `logger`     | `(message: string, ...args: unknown[]) => void` | —                           | Callback for debug logging (e.g. `console.log`)                                          |
+| `fetch`      | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (or an x402-wrapped fetch)                                   |
+| `maxRetries` | `number`                                        | `0`                         | Retries for retryable errors (`429`, `5xx`)                                              |
+| `retryDelay` | `number`                                        | `1000`                      | Base delay in ms between retries (doubles each attempt)                                  |
 
-The config is validated at construction time with Zod — an invalid config (e.g. an empty `apiKey`) throws immediately.
+The config is validated at construction time with Zod — an invalid config (e.g. an empty `apiKey`) throws immediately. When `x402` is enabled, `apiKey` is optional but a payment-capable `fetch` is required. Failed requests throw a `GlassnodeApiError` whose message includes the server's error detail (also on `.detail`).
 
 ## Methods
 
@@ -155,6 +157,56 @@ snapshots across the whole market:
 const marketcaps = await api.callBulkMetric('/market/marketcap_usd');
 // [{ t: 1609459200, bulk: [{ a: 'BTC', v: 600000000000 }, { a: 'ETH', v: 100000000000 }] }]
 ```
+
+## Paid calls with x402
+
+Glassnode also serves a **paid, per-call API over the [x402 protocol](https://x402.org)** at
+`https://x402.glassnode.com` — no API key required, you pay per request in USDC on Base
+($0.01/metadata call, $0.05/metric call). This is **Node-first** and opt-in: the crypto stack
+(`@x402/fetch`, `@x402/evm`, `viem`) is an **optional peer dependency**, installed only if you use it.
+
+```bash
+pnpm add glassnode-api @x402/fetch @x402/evm viem
+```
+
+```typescript
+import { GlassnodeAPI } from 'glassnode-api';
+import { createX402Fetch } from 'glassnode-api/x402';
+import { privateKeyToAccount } from 'viem/accounts';
+
+const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
+
+const api = new GlassnodeAPI({
+  x402: true, // → https://x402.glassnode.com
+  fetch: await createX402Fetch({
+    account,
+    maxPaymentPerCall: '0.06', // USDC per-call ceiling (default)
+  }),
+});
+
+// Pays $0.05 USDC on Base, transparently:
+const mvrv = await api.callMetric('/market/mvrv', { a: 'BTC', i: '24h' });
+```
+
+**`createX402Fetch(options)`**
+
+| Option              | Type           | Default            | Description                      |
+| ------------------- | -------------- | ------------------ | -------------------------------- |
+| `account`           | `LocalAccount` | — (**required**)   | viem account that signs payments |
+| `maxPaymentPerCall` | `string`       | `'0.06'`           | Per-call USDC spend ceiling      |
+| `fetch`             | `typeof fetch` | `globalThis.fetch` | Base fetch to wrap               |
+
+> **Spend safety:** `maxPaymentPerCall` caps a **single** request — it is **not** a cumulative budget, so
+> an agent loop can still spend within that ceiling repeatedly. Use a **dedicated, funded-but-limited**
+> wallet (never your primary key), and load the key from the environment — never hardcode it.
+
+**Notes**
+
+- **Bulk metrics are not available over x402** — `callBulkMetric()` only works against the free
+  `api.glassnode.com`.
+- **Other endpoints:** target a non-default x402 endpoint (e.g. a testnet) by passing its URL as
+  `apiUrl`.
+- **Browser** signing is not supported yet (planned).
 
 ## Browser
 

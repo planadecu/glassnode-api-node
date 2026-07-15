@@ -61,6 +61,21 @@ describe('GlassnodeAPI', () => {
       expect(logger).toHaveBeenCalledWith('API call:', expect.stringContaining(DEFAULT_API_URL));
     });
 
+    it('redacts the api_key in logged URLs', async () => {
+      const logger = vi.fn();
+      const fetchFn = createMockFetch({
+        ok: true,
+        json: vi.fn().mockResolvedValue(mockMetricListResponse),
+      });
+
+      const api = new GlassnodeAPI({ apiKey: API_KEY, logger, fetch: fetchFn });
+      await api.getMetricList();
+
+      const logged = logger.mock.calls.find((c) => c[0] === 'API call:')?.[1] as string;
+      expect(logged).toContain('api_key=***');
+      expect(logged).not.toContain(API_KEY);
+    });
+
     it('should use custom fetch when provided', async () => {
       const fetchFn = createMockFetch({
         ok: true,
@@ -321,6 +336,67 @@ describe('GlassnodeAPI', () => {
       expect(new GlassnodeApiError(401, 'Unauthorized').isRetryable).toBe(false);
     });
 
+    it('gives a helpful 402 message and marks it non-retryable', () => {
+      const err = new GlassnodeApiError(402, 'Payment Required');
+      expect(err.message).toContain('Payment required');
+      // Covers the funded-but-failed x402 case (payment did not settle), not only "no wrapper"
+      expect(err.message).toContain('USDC');
+      expect(err.message).toContain('maxPaymentPerCall');
+      expect(err.message).toContain('glassnode-api/x402');
+      expect(err.isRetryable).toBe(false);
+    });
+
+    it('appends a server detail to the message and exposes it on .detail', () => {
+      const err = new GlassnodeApiError(403, 'Forbidden', 'Resolution 1h is not allowed');
+      expect(err.message).toContain('Access forbidden');
+      expect(err.message).toContain('Resolution 1h is not allowed');
+      expect(err.detail).toBe('Resolution 1h is not allowed');
+    });
+
+    it('surfaces the JSON error-body message from the server', async () => {
+      const fetchFn = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        text: vi.fn().mockResolvedValue(
+          JSON.stringify({
+            message: 'Resolution 1h is not allowed. Allowed resolutions: [24h, 1w, 1month]',
+          })
+        ),
+      });
+      const api = createApi(fetchFn);
+
+      await expect(
+        api.callMetric('/addresses/active_count', { a: 'ETH', i: '1h' })
+      ).rejects.toThrow('Resolution 1h is not allowed');
+    });
+
+    it('surfaces a plain-text error body when it is not JSON', async () => {
+      const fetchFn = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        text: vi.fn().mockResolvedValue('unexpected parameter "foo"'),
+      });
+      const api = createApi(fetchFn);
+
+      await expect(api.getMetricList()).rejects.toThrow('unexpected parameter "foo"');
+    });
+
+    it('does not append raw JSON when the body has no message/error field', async () => {
+      const fetchFn = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 402,
+        statusText: 'Payment Required',
+        text: vi.fn().mockResolvedValue('null'),
+      });
+      const api = createApi(fetchFn);
+
+      const err = (await api.callMetric('/market/mvrv', { a: 'BTC' }).catch((e) => e)) as Error;
+      expect(err.message).toContain('Payment required');
+      expect(err.message).not.toContain('null');
+    });
+
     it('should handle network errors', async () => {
       const fetchFn = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
       const api = createApi(fetchFn);
@@ -440,6 +516,44 @@ describe('GlassnodeAPI', () => {
 
       expect(fetchFn).toHaveBeenCalledTimes(2);
       expect(result).toEqual(mockMetricListResponse);
+    });
+  });
+
+  describe('x402 mode', () => {
+    const okFetch = () =>
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue(mockMetricListResponse),
+      });
+
+    it('routes to the x402 host when x402 is true', async () => {
+      const fetchFn = okFetch();
+      const api = new GlassnodeAPI({ x402: true, fetch: fetchFn });
+      await api.getMetricList();
+      expect(fetchFn).toHaveBeenCalledWith(
+        expect.stringContaining('https://x402.glassnode.com/v1/metadata/metrics')
+      );
+    });
+
+    it('omits api_key when no apiKey is set', async () => {
+      const fetchFn = okFetch();
+      const api = new GlassnodeAPI({ x402: true, fetch: fetchFn });
+      await api.getMetricList();
+      const calledUrl = fetchFn.mock.calls[0][0] as string;
+      expect(calledUrl).not.toContain('api_key');
+    });
+
+    it('an explicit apiUrl overrides the x402 preset', async () => {
+      const fetchFn = okFetch();
+      const api = new GlassnodeAPI({
+        x402: true,
+        apiUrl: 'https://x402.example.test',
+        fetch: fetchFn,
+      });
+      await api.getMetricList();
+      expect(fetchFn).toHaveBeenCalledWith(
+        expect.stringContaining('https://x402.example.test/v1/metadata/metrics')
+      );
     });
   });
 });

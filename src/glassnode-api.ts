@@ -1,4 +1,11 @@
-import { GlassnodeConfig, GlassnodeConfigSchema, Logger, FetchFn } from './types/config';
+import {
+  GlassnodeConfig,
+  GlassnodeConfigSchema,
+  Logger,
+  FetchFn,
+  DEFAULT_API_URL,
+  X402_API_URL,
+} from './types/config';
 import { GlassnodeApiError } from './errors';
 import {
   AssetMetadataResponse,
@@ -11,11 +18,16 @@ import {
   BulkResponseSchema,
 } from './types/metadata';
 
+/** Mask the `api_key` query-param value so it never reaches logs. */
+function redactApiKey(url: string): string {
+  return url.replace(/([?&]api_key=)[^&]+/gi, '$1***');
+}
+
 /**
  * Glassnode API client
  */
 export class GlassnodeAPI {
-  private apiKey: string;
+  private apiKey: string | undefined;
   private apiUrl: string;
   private logger?: Logger;
   private fetchFn: FetchFn;
@@ -31,7 +43,7 @@ export class GlassnodeAPI {
     const validatedConfig = GlassnodeConfigSchema.parse(config);
 
     this.apiKey = validatedConfig.apiKey;
-    this.apiUrl = validatedConfig.apiUrl;
+    this.apiUrl = validatedConfig.apiUrl ?? (validatedConfig.x402 ? X402_API_URL : DEFAULT_API_URL);
     this.logger = validatedConfig.logger as Logger | undefined;
     this.fetchFn = (validatedConfig.fetch as FetchFn) ?? globalThis.fetch;
     this.maxRetries = validatedConfig.maxRetries;
@@ -47,7 +59,7 @@ export class GlassnodeAPI {
   private async request<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
     const queryParams = new URLSearchParams({
       ...params,
-      api_key: this.apiKey,
+      ...(this.apiKey ? { api_key: this.apiKey } : {}),
     });
 
     const url = `${this.apiUrl}${endpoint}?${queryParams}`;
@@ -60,7 +72,7 @@ export class GlassnodeAPI {
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
 
-      this.logger?.('API call:', url);
+      this.logger?.('API call:', redactApiKey(url));
 
       try {
         const response = await this.fetchFn(url);
@@ -71,7 +83,11 @@ export class GlassnodeAPI {
             lastError = error;
             continue;
           }
-          throw error;
+          // Surface the server's error body (e.g. "Resolution 1h is not allowed") in the message.
+          const detail = await this.readErrorDetail(response);
+          throw detail
+            ? new GlassnodeApiError(response.status, response.statusText, detail)
+            : error;
         }
 
         return await response.json();
@@ -89,6 +105,29 @@ export class GlassnodeAPI {
     }
 
     throw lastError;
+  }
+
+  /**
+   * Best-effort extraction of a human-readable message from an error response body.
+   * Glassnode returns `{ "message": "..." }` (or `{ "error": "..." }`) on failures.
+   * Never throws — returns undefined if the body is empty or unreadable.
+   */
+  private async readErrorDetail(response: Response): Promise<string | undefined> {
+    try {
+      const text = await response.text();
+      if (!text.trim()) return undefined;
+      try {
+        const parsed = JSON.parse(text);
+        const message = parsed?.message ?? parsed?.error;
+        // Valid JSON: only use a string message/error — never dump the raw JSON (e.g. "null").
+        return typeof message === 'string' && message.trim() ? message.trim() : undefined;
+      } catch {
+        // Non-JSON body — return the raw text.
+        return text.trim().slice(0, 300);
+      }
+    } catch {
+      return undefined;
+    }
   }
 
   /**

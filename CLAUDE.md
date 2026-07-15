@@ -6,7 +6,7 @@ This document provides context for Claude when working with this project.
 
 - `/src` - Source code
   - `/src/types` - TypeScript type definitions (Zod schemas + inferred types)
-- `/test` - Test files (Jest)
+- `/test` - Test files (Vitest)
 - `/examples` - Example usage patterns
 - `/dist` - Compiled output (not checked into git)
 

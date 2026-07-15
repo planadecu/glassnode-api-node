@@ -1,6 +1,6 @@
 {
   "name": "glassnode-api",
-  "version": "0.7.7",
+  "version": "0.8.0",
   "description": "Typescript client for the Glassnode API (Node.js and Browser)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -26,6 +26,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:x402": "vitest run test/x402.integration.spec.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "prepare": "husky",
@@ -68,6 +69,11 @@
       "import": "./dist/glassnode-api.esm.min.js",
       "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./x402": {
+      "types": "./dist/x402.d.ts",
+      "import": "./dist/x402.js",
+      "require": "./dist/x402.js"
     }
   },
   "publishConfig": {
@@ -79,6 +85,16 @@
   "dependencies": {
     "zod": "^4.4.3"
   },
+  "peerDependencies": {
+    "@x402/fetch": "^2.18.0",
+    "@x402/evm": "^2.18.0",
+    "viem": "^2.48.11"
+  },
+  "peerDependenciesMeta": {
+    "@x402/fetch": { "optional": true },
+    "@x402/evm": { "optional": true },
+    "viem": { "optional": true }
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@rollup/plugin-commonjs": "^29.0.3",
@@ -87,6 +103,8 @@
     "@rollup/plugin-typescript": "^12.3.0",
     "@types/node": "^26.1.1",
     "@vitest/coverage-v8": "^4.1.10",
+    "@x402/evm": "^2.18.0",
+    "@x402/fetch": "^2.18.0",
     "eslint": "^10.7.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.8",
@@ -95,6 +113,7 @@
     "tslib": "^2.8.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.64.0",
+    "viem": "^2.55.2",
     "vitest": "^4.1.10"
   },
   "lint-staged": {
