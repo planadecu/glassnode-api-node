@@ -90,16 +90,17 @@ const data = await api.callMetric('/market/price_usd_close', {
 
 `new GlassnodeAPI(config)`
 
-| Option       | Type                                            | Default                     | Description                                             |
-| ------------ | ----------------------------------------------- | --------------------------- | ------------------------------------------------------- |
-| `apiKey`     | `string`                                        | — (**required**)            | Your Glassnode API key                                  |
-| `apiUrl`     | `string`                                        | `https://api.glassnode.com` | Base URL for the API                                    |
-| `logger`     | `(message: string, ...args: unknown[]) => void` | —                           | Callback for debug logging (e.g. `console.log`)         |
-| `fetch`      | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (custom headers, testing…)  |
-| `maxRetries` | `number`                                        | `0`                         | Retries for retryable errors (`429`, `5xx`)             |
-| `retryDelay` | `number`                                        | `1000`                      | Base delay in ms between retries (doubles each attempt) |
+| Option       | Type                                            | Default                     | Description                                                                              |
+| ------------ | ----------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------- |
+| `apiKey`     | `string`                                        | — (required unless `x402`)  | Your Glassnode API key                                                                   |
+| `apiUrl`     | `string`                                        | `https://api.glassnode.com` | Base URL for the API                                                                     |
+| `x402`       | `boolean`                                       | `false`                     | Route through the paid x402 endpoint (see [Paid calls with x402](#paid-calls-with-x402)) |
+| `logger`     | `(message: string, ...args: unknown[]) => void` | —                           | Callback for debug logging (e.g. `console.log`)                                          |
+| `fetch`      | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (or an x402-wrapped fetch)                                   |
+| `maxRetries` | `number`                                        | `0`                         | Retries for retryable errors (`429`, `5xx`)                                              |
+| `retryDelay` | `number`                                        | `1000`                      | Base delay in ms between retries (doubles each attempt)                                  |
 
-The config is validated at construction time with Zod — an invalid config (e.g. an empty `apiKey`) throws immediately.
+The config is validated at construction time with Zod — an invalid config (e.g. an empty `apiKey`) throws immediately. When `x402` is enabled, `apiKey` is optional but a payment-capable `fetch` is required. Failed requests throw a `GlassnodeApiError` whose message includes the server's error detail (also on `.detail`).
 
 ## Methods
 
