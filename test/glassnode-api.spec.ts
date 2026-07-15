@@ -383,6 +383,20 @@ describe('GlassnodeAPI', () => {
       await expect(api.getMetricList()).rejects.toThrow('unexpected parameter "foo"');
     });
 
+    it('does not append raw JSON when the body has no message/error field', async () => {
+      const fetchFn = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 402,
+        statusText: 'Payment Required',
+        text: vi.fn().mockResolvedValue('null'),
+      });
+      const api = createApi(fetchFn);
+
+      const err = (await api.callMetric('/market/mvrv', { a: 'BTC' }).catch((e) => e)) as Error;
+      expect(err.message).toContain('Payment required');
+      expect(err.message).not.toContain('null');
+    });
+
     it('should handle network errors', async () => {
       const fetchFn = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
       const api = createApi(fetchFn);

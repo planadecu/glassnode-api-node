@@ -115,16 +115,16 @@ export class GlassnodeAPI {
   private async readErrorDetail(response: Response): Promise<string | undefined> {
     try {
       const text = await response.text();
-      if (!text) return undefined;
+      if (!text.trim()) return undefined;
       try {
         const parsed = JSON.parse(text);
         const message = parsed?.message ?? parsed?.error;
-        if (typeof message === 'string' && message.trim()) return message.trim();
+        // Valid JSON: only use a string message/error — never dump the raw JSON (e.g. "null").
+        return typeof message === 'string' && message.trim() ? message.trim() : undefined;
       } catch {
-        // Body is not JSON — fall through to the raw text.
+        // Non-JSON body — return the raw text.
+        return text.trim().slice(0, 300);
       }
-      const trimmed = text.trim();
-      return trimmed ? trimmed.slice(0, 300) : undefined;
     } catch {
       return undefined;
     }
