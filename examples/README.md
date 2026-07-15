@@ -18,7 +18,7 @@ Before running the examples:
 
 ## Available Examples
 
-### Metadata Validation (`metadata.validation.ts`)
+### Metadata Validation (`ex.metadata.validation.ts`)
 
 Demonstrates how to:
 
@@ -30,10 +30,10 @@ Demonstrates how to:
 Run with:
 
 ```bash
-npx ts-node metadata.validation.ts
+npx ts-node ex.metadata.validation.ts
 ```
 
-### Metric Dumping (`metric.dump.ts`)
+### Metric Dumping (`ex.metric.dump.ts`)
 
 Shows how to:
 
@@ -45,7 +45,7 @@ Shows how to:
 Run with:
 
 ```bash
-npx ts-node metric.dump.ts
+npx ts-node ex.metric.dump.ts
 ```
 
 ### x402 Paid Calls — Active Addresses (`ex.x402.active-addresses.ts`)
@@ -84,7 +84,7 @@ The examples use:
 
 - `dotenv` - For loading environment variables
 - `ts-node` - For running TypeScript files directly
-- `zod` - For schema validation (used in metadata.validation.ts)
+- `zod` - For schema validation (used in ex.metadata.validation.ts)
 - `@x402/fetch`, `@x402/evm`, `viem` - For the x402 paid-API example (payment signing on Base)
 
 ## Adding New Examples
