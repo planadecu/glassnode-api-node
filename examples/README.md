@@ -48,19 +48,24 @@ Run with:
 npx ts-node metric.dump.ts
 ```
 
-### x402 Paid Calls — SUI Active Addresses (`x402.active-addresses.ts`)
+### x402 Paid Calls — Active Addresses (`ex.x402.active-addresses.ts`)
 
 Demonstrates the **x402 paid API** (no API key — you pay per call in USDC on Base):
 
 - Build a payment-capable `fetch` from a funded Base wallet (`createX402Fetch`)
-- Hit the **metadata** endpoint ($0.01) to confirm SUI + `1h` are supported
-- Fetch **SUI active addresses**, last 1 month at `1h` resolution ($0.05)
+- Hit the **metadata** endpoint ($0.01) to confirm the asset + `1h` are supported
+- Fetch **active addresses** for the asset, last 1 month at `1h` resolution ($0.05)
 - Switch between testnet (Base Sepolia) and mainnet (Base) via env
+
+Defaults to **ETH** (supported on testnet). Override with `X402_ASSET` — e.g. `SUI`, which is
+only offered on **mainnet** for this metric (the metadata check will tell you and skip the paid
+query if an asset isn't supported).
 
 Set these in `.env` (see `.env.example`):
 
 ```
 X402_NETWORK=testnet                 # testnet | mainnet
+X402_ASSET=ETH                       # optional, asset symbol (default ETH)
 X402_PRIVATE_KEY=0xyour_funded_wallet_private_key
 X402_MAX_PAYMENT=0.06                # optional, per-call USDC ceiling
 ```
@@ -72,7 +77,7 @@ X402_MAX_PAYMENT=0.06                # optional, per-call USDC ceiling
 Run with:
 
 ```bash
-npx ts-node x402.active-addresses.ts
+npx ts-node ex.x402.active-addresses.ts
 ```
 
 ## Dependencies
