@@ -331,6 +331,43 @@ describe('GlassnodeAPI', () => {
       expect(err.isRetryable).toBe(false);
     });
 
+    it('appends a server detail to the message and exposes it on .detail', () => {
+      const err = new GlassnodeApiError(403, 'Forbidden', 'Resolution 1h is not allowed');
+      expect(err.message).toContain('Access forbidden');
+      expect(err.message).toContain('Resolution 1h is not allowed');
+      expect(err.detail).toBe('Resolution 1h is not allowed');
+    });
+
+    it('surfaces the JSON error-body message from the server', async () => {
+      const fetchFn = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        text: vi.fn().mockResolvedValue(
+          JSON.stringify({
+            message: 'Resolution 1h is not allowed. Allowed resolutions: [24h, 1w, 1month]',
+          })
+        ),
+      });
+      const api = createApi(fetchFn);
+
+      await expect(
+        api.callMetric('/addresses/active_count', { a: 'ETH', i: '1h' })
+      ).rejects.toThrow('Resolution 1h is not allowed');
+    });
+
+    it('surfaces a plain-text error body when it is not JSON', async () => {
+      const fetchFn = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        text: vi.fn().mockResolvedValue('unexpected parameter "foo"'),
+      });
+      const api = createApi(fetchFn);
+
+      await expect(api.getMetricList()).rejects.toThrow('unexpected parameter "foo"');
+    });
+
     it('should handle network errors', async () => {
       const fetchFn = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
       const api = createApi(fetchFn);

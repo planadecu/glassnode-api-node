@@ -78,7 +78,11 @@ export class GlassnodeAPI {
             lastError = error;
             continue;
           }
-          throw error;
+          // Surface the server's error body (e.g. "Resolution 1h is not allowed") in the message.
+          const detail = await this.readErrorDetail(response);
+          throw detail
+            ? new GlassnodeApiError(response.status, response.statusText, detail)
+            : error;
         }
 
         return await response.json();
@@ -96,6 +100,29 @@ export class GlassnodeAPI {
     }
 
     throw lastError;
+  }
+
+  /**
+   * Best-effort extraction of a human-readable message from an error response body.
+   * Glassnode returns `{ "message": "..." }` (or `{ "error": "..." }`) on failures.
+   * Never throws — returns undefined if the body is empty or unreadable.
+   */
+  private async readErrorDetail(response: Response): Promise<string | undefined> {
+    try {
+      const text = await response.text();
+      if (!text) return undefined;
+      try {
+        const parsed = JSON.parse(text);
+        const message = parsed?.message ?? parsed?.error;
+        if (typeof message === 'string' && message.trim()) return message.trim();
+      } catch {
+        // Body is not JSON — fall through to the raw text.
+      }
+      const trimmed = text.trim();
+      return trimmed ? trimmed.slice(0, 300) : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /**

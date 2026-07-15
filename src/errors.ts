@@ -10,13 +10,16 @@ const STATUS_MESSAGES: Record<number, string> = {
 export class GlassnodeApiError extends Error {
   readonly status: number;
   readonly statusText: string;
+  /** Server-provided error detail parsed from the response body, if any. */
+  readonly detail?: string;
 
-  constructor(status: number, statusText: string) {
-    const detail = STATUS_MESSAGES[status] ?? statusText;
-    super(`API request failed (${status}): ${detail}`);
+  constructor(status: number, statusText: string, detail?: string) {
+    const base = STATUS_MESSAGES[status] ?? statusText;
+    super(`API request failed (${status}): ${base}${detail ? ` — ${detail}` : ''}`);
     this.name = 'GlassnodeApiError';
     this.status = status;
     this.statusText = statusText;
+    this.detail = detail;
   }
 
   get isRetryable(): boolean {
