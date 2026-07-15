@@ -48,6 +48,33 @@ Run with:
 npx ts-node metric.dump.ts
 ```
 
+### x402 Paid Calls — SUI Active Addresses (`x402.active-addresses.ts`)
+
+Demonstrates the **x402 paid API** (no API key — you pay per call in USDC on Base):
+
+- Build a payment-capable `fetch` from a funded Base wallet (`createX402Fetch`)
+- Hit the **metadata** endpoint ($0.01) to confirm SUI + `1h` are supported
+- Fetch **SUI active addresses**, last 1 month at `1h` resolution ($0.05)
+- Switch between testnet (Base Sepolia) and mainnet (Base) via env
+
+Set these in `.env` (see `.env.example`):
+
+```
+X402_NETWORK=testnet                 # testnet | mainnet
+X402_PRIVATE_KEY=0xyour_funded_wallet_private_key
+X402_MAX_PAYMENT=0.06                # optional, per-call USDC ceiling
+```
+
+> **Wallet safety:** use a dedicated, funded-but-limited wallet — never a primary key. On testnet
+> fund it with Base Sepolia test USDC; on mainnet it spends real USDC. `X402_MAX_PAYMENT` caps each
+> call, not total spend. Start on `testnet`, then set `X402_NETWORK=mainnet`.
+
+Run with:
+
+```bash
+npx ts-node x402.active-addresses.ts
+```
+
 ## Dependencies
 
 The examples use:
@@ -55,6 +82,7 @@ The examples use:
 - `dotenv` - For loading environment variables
 - `ts-node` - For running TypeScript files directly
 - `zod` - For schema validation (used in metadata.validation.ts)
+- `@x402/fetch`, `@x402/evm`, `viem` - For the x402 paid-API example (payment signing on Base)
 
 ## Adding New Examples
 
