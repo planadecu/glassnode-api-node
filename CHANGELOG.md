@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0
+
+- Add opt-in, Node-first **x402 payment support**: `x402: true` config preset (routes to
+  `https://x402.glassnode.com`) and a new `glassnode-api/x402` subpath export with
+  `createX402Fetch({ account, maxPaymentPerCall })`. The crypto stack (`@x402/fetch`, `@x402/evm`,
+  `viem`) is an optional peer dependency; the core package stays `zod`-only.
+- `apiKey` is now optional when `x402` is enabled; `fetch` is required in that mode.
+- Add a friendly `402` error message. Bulk metrics remain free-API only (unsupported over x402).
+
 ## 0.7.7
 
 - Fix transitive dev-dependency vulnerabilities via `pnpm.overrides`: `flatted` ≥3.4.2 (high), `serialize-javascript` ≥7.0.5, `picomatch` ≥4.0.4, `brace-expansion` ≥5.0.6 — `pnpm audit` now clean
