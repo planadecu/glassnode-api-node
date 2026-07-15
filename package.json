@@ -86,8 +86,8 @@
     "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "@x402/fetch": ">=2.18.0",
-    "@x402/evm": ">=2.18.0",
+    "@x402/fetch": "^2.18.0",
+    "@x402/evm": "^2.18.0",
     "viem": "^2.48.11"
   },
   "peerDependenciesMeta": {
