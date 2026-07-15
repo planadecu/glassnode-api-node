@@ -1,22 +1,28 @@
 /**
- * x402 paid-API example: active addresses (last 1 month, 1h resolution).
+ * x402 paid-API example: active addresses (configurable metric/asset/resolution).
  *
  * Flow:
  *   1. Build a payment-capable fetch from a funded Base wallet (viem account).
- *   2. Hit the METADATA endpoint ($0.01) to confirm the metric supports the asset and 1h.
- *   3. Hit the METRIC endpoint ($0.05) for active addresses over the last month @ 1h.
+ *   2. Hit the METADATA endpoint ($0.01) to confirm the metric supports the asset + resolution.
+ *   3. Hit the METRIC endpoint ($0.05) for the last month of data at that resolution.
  *
- * Defaults to ETH (supported on testnet). Override the asset with X402_ASSET — e.g. try
- * SUI on mainnet (SUI active_count is not offered on the testnet endpoint).
- *
- * Runs against the testnet (Base Sepolia) or mainnet (Base) depending on X402_NETWORK.
- * Start on testnet with a Sepolia-funded test-USDC wallet, then flip to mainnet.
+ * Defaults: ETH active addresses at 24h on testnet.
+ * Notes:
+ *   - active_count only allows 24h/1w/1month on the x402 endpoint — i=1h returns HTTP 403
+ *     "Resolution 1h is not allowed" (the metadata `parameters.i` list can be broader than
+ *     what the endpoint actually serves).
+ *   - Some assets (e.g. SUI) are only offered on mainnet for a given metric — the metadata
+ *     check reports this and skips the paid query.
+ *   - X402_SKIP_METADATA=1 makes a single paid metric call (no metadata call first).
  *
  * Env (examples/.env):
- *   X402_NETWORK       testnet | mainnet   (default: testnet)
- *   X402_ASSET         asset symbol         (default: ETH)
- *   X402_PRIVATE_KEY   0x-prefixed private key of a funded Base wallet (required)
- *   X402_MAX_PAYMENT   per-call USDC ceiling (default: 0.06)
+ *   X402_NETWORK        testnet | mainnet          (default: testnet)
+ *   X402_METRIC         metric path                (default: /addresses/active_count)
+ *   X402_ASSET          asset symbol               (default: ETH)
+ *   X402_RESOLUTION     24h | 1w | 1month          (default: 24h; 1h is not allowed)
+ *   X402_SKIP_METADATA  1 to skip the metadata call (default: 0)
+ *   X402_PRIVATE_KEY    0x-prefixed key of a funded Base wallet (required)
+ *   X402_MAX_PAYMENT    per-call USDC ceiling       (default: 0.06)
  *
  * Run:  npx ts-node ex.x402.active-addresses.ts
  */
@@ -28,10 +34,10 @@ import 'dotenv/config';
 const NETWORK = (process.env.X402_NETWORK ?? 'testnet').toLowerCase();
 const PRIVATE_KEY = process.env.X402_PRIVATE_KEY;
 const MAX_PAYMENT = process.env.X402_MAX_PAYMENT ?? '0.06';
+const METRIC = process.env.X402_METRIC ?? '/addresses/active_count';
 const ASSET = (process.env.X402_ASSET ?? 'ETH').toUpperCase();
-
-const METRIC = '/addresses/active_count';
-const RESOLUTION = '1h';
+const RESOLUTION = process.env.X402_RESOLUTION ?? '24h';
+const SKIP_METADATA = process.env.X402_SKIP_METADATA === '1';
 const ONE_MONTH_SECONDS = 30 * 24 * 60 * 60;
 
 async function main(): Promise<void> {
@@ -46,7 +52,7 @@ async function main(): Promise<void> {
 
   const account = privateKeyToAccount(PRIVATE_KEY as `0x${string}`);
   console.log(`x402 ${NETWORK} — wallet ${account.address}`);
-  console.log(`Asset: ${ASSET} | per-call cap: $${MAX_PAYMENT} USDC\n`);
+  console.log(`${METRIC}  asset=${ASSET}  i=${RESOLUTION}  cap=$${MAX_PAYMENT}\n`);
 
   const api = new GlassnodeAPI({
     x402: true, // defaults to mainnet (https://x402.glassnode.com)
@@ -55,35 +61,38 @@ async function main(): Promise<void> {
     logger: console.log,
   });
 
-  // 1) Metadata ($0.01): confirm the metric supports the asset and 1h resolution.
-  console.log(`\nChecking metadata for ${METRIC} ...`);
-  const meta = await api.getMetricMetadata(METRIC);
-  const assets = meta.parameters?.a ?? [];
-  const resolutions = meta.parameters?.i ?? [];
-  const hasAsset = assets.includes(ASSET);
-  const has1h = resolutions.includes(RESOLUTION);
-  console.log(
-    `  supported assets: ${assets.length} — ${ASSET} ${hasAsset ? 'present ✓' : 'MISSING ✗'}`
-  );
-  console.log(
-    `  resolutions: ${resolutions.join(', ') || '(none listed)'} — ${RESOLUTION} ${has1h ? '✓' : 'not listed'}`
-  );
-
-  // Avoid wasting the $0.05 metric call on an asset the metric doesn't support.
-  if (!hasAsset) {
-    const sample = assets.slice(0, 12).join(', ');
-    console.warn(
-      `\n⚠ ${ASSET} is not supported for ${METRIC} on this endpoint. Try one of: ${sample}${
-        assets.length > 12 ? ', …' : ''
-      }`
+  // 1) Metadata ($0.01): confirm the metric supports the asset and resolution.
+  //    Skip with X402_SKIP_METADATA=1 to make a single paid metric call.
+  if (!SKIP_METADATA) {
+    console.log(`\nChecking metadata for ${METRIC} ...`);
+    const meta = await api.getMetricMetadata(METRIC);
+    const assets = meta.parameters?.a ?? [];
+    const resolutions = meta.parameters?.i ?? [];
+    const hasAsset = assets.includes(ASSET);
+    const hasResolution = resolutions.includes(RESOLUTION);
+    console.log(
+      `  supported assets: ${assets.length} — ${ASSET} ${hasAsset ? 'present ✓' : 'MISSING ✗'}`
     );
-    console.warn(`  Set X402_ASSET=<symbol> (or X402_NETWORK=mainnet) and re-run.`);
-    return;
+    console.log(
+      `  resolutions: ${resolutions.join(', ') || '(none listed)'} — ${RESOLUTION} ${hasResolution ? '✓' : 'not listed'}`
+    );
+
+    // Skip the $0.05 metric call if the metadata already says the asset is unsupported.
+    if (!hasAsset) {
+      const sample = assets.slice(0, 12).join(', ');
+      console.warn(
+        `\n⚠ ${ASSET} is not supported for ${METRIC} on this endpoint. Try one of: ${sample}${
+          assets.length > 12 ? ', …' : ''
+        }`
+      );
+      console.warn('  Set X402_ASSET=<symbol> (or X402_NETWORK=mainnet) and re-run.');
+      return;
+    }
   }
 
-  // 2) Metric ($0.05): active addresses, last 1 month @ 1h.
+  // 2) Metric ($0.05): last month of data at the chosen resolution.
   const since = Math.floor(Date.now() / 1000) - ONE_MONTH_SECONDS;
-  console.log(`\nFetching ${ASSET} active addresses, last 1 month @ ${RESOLUTION} ...`);
+  console.log(`\nFetching ${ASSET} ${METRIC}, last 1 month @ ${RESOLUTION} ...`);
   const data = await api.callMetric<{ t: number; v: number }[]>(METRIC, {
     a: ASSET,
     i: RESOLUTION,
@@ -97,7 +106,7 @@ async function main(): Promise<void> {
     const avg = data.reduce((sum, d) => sum + d.v, 0) / data.length;
     console.log(`  first: ${new Date(first.t * 1000).toISOString()} → ${first.v}`);
     console.log(`  last:  ${new Date(last.t * 1000).toISOString()} → ${last.v}`);
-    console.log(`  avg active addresses: ${Math.round(avg)}`);
+    console.log(`  average: ${Math.round(avg)}`);
   }
 }
 
