@@ -21,7 +21,7 @@
  * Env (examples/.env):
  *   X402_API_URL        optional x402 endpoint override (default: built-in mainnet)
  *   X402_METRIC         metric path                (default: /addresses/active_count)
- *   X402_ASSET          asset symbol               (default: ETH)
+ *   X402_ASSET          asset symbol               (default: BTC)
  *   X402_RESOLUTION     24h | 1w | 1month          (default: 24h; 1h is not allowed)
  *   X402_SKIP_METADATA  1 to skip the metadata call (default: 0)
  *   X402_PRIVATE_KEY    0x-prefixed key of a funded Base wallet (required)
@@ -38,7 +38,7 @@ const PRIVATE_KEY = process.env.X402_PRIVATE_KEY;
 const API_URL = process.env.X402_API_URL; // optional endpoint override; unset → built-in mainnet
 const MAX_PAYMENT = process.env.X402_MAX_PAYMENT ?? '0.06';
 const METRIC = process.env.X402_METRIC ?? '/addresses/active_count';
-const ASSET = (process.env.X402_ASSET ?? 'ETH').toUpperCase();
+const ASSET = (process.env.X402_ASSET ?? 'BTC').toUpperCase();
 const RESOLUTION = process.env.X402_RESOLUTION ?? '24h';
 const SKIP_METADATA = process.env.X402_SKIP_METADATA === '1';
 const ONE_MONTH_SECONDS = 30 * 24 * 60 * 60;
