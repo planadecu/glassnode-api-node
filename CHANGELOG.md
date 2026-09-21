@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.11
+
+- CI hardening: enforce coverage thresholds (`test:coverage` replaces `pnpm test` in CI and the
+  publish workflow), type-check the test files (`tsc -p tsconfig.test.json --noEmit`), add a
+  **Node 18 compat job** that builds and smoke-imports the CJS entry (proving `engines: ">=18"`),
+  add `concurrency` cancel-in-progress, and run `publint` + `@arethetypeswrong/cli` as advisory
+  packaging audits (they currently flag the bundled ESM entry; they become hard gates once that is
+  reworked). No package/runtime change.
+
 ## 0.9.10
 
 - Supply chain: the Husky pre-commit hook now runs `pnpm exec lint-staged` (the pinned

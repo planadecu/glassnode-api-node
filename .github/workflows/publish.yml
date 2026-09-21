@@ -40,7 +40,8 @@ jobs:
           git config --global user.email 'github-actions@github.com'
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
-      - run: pnpm test
+      - run: pnpm run test:coverage
+      - run: pnpm exec tsc -p tsconfig.test.json --noEmit
       - run: pnpm run build
       - run: pnpm run build:browser
       - run: pnpm version patch --no-git-tag-version
