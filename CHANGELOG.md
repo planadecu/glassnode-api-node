@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.3
+
+- Add a checked-in `.npmrc` with supply-chain hardening defaults: `ignore-scripts=true` (block
+  install-time lifecycle scripts) and `minimum-release-age=10080` (require dependencies to be at
+  least 7 days old before install). Repo-config only; not published in the package tarball.
+
 ## 0.8.0
 
 - Add opt-in, Node-first **x402 payment support**: `x402: true` config preset (routes to
