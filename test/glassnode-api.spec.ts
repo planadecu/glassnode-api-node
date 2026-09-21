@@ -93,6 +93,51 @@ describe('GlassnodeAPI', () => {
     });
   });
 
+  describe('timeout', () => {
+    it('does not pass a second fetch argument when no timeout is set', async () => {
+      const fetchFn = createMockFetch({
+        ok: true,
+        json: vi.fn().mockResolvedValue(mockMetricListResponse),
+      });
+
+      const api = createApi(fetchFn);
+      await api.getMetricList();
+
+      // Single-argument call preserved for the default (no-timeout) path.
+      expect(fetchFn).toHaveBeenCalledWith(expect.any(String));
+      expect(fetchFn.mock.calls[0]).toHaveLength(1);
+    });
+
+    it('passes an AbortSignal to fetch when timeout is set', async () => {
+      const fetchFn = createMockFetch({
+        ok: true,
+        json: vi.fn().mockResolvedValue(mockMetricListResponse),
+      });
+
+      const api = new GlassnodeAPI({ apiKey: API_KEY, fetch: fetchFn, timeout: 5000 });
+      await api.getMetricList();
+
+      expect(fetchFn).toHaveBeenCalledWith(
+        expect.stringContaining('/v1/metadata/metrics'),
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
+    });
+
+    it('surfaces a timeout/abort rejection', async () => {
+      const fetchFn = vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error('The operation was aborted'), { name: 'TimeoutError' })
+        );
+
+      const api = new GlassnodeAPI({ apiKey: API_KEY, fetch: fetchFn, timeout: 10 });
+
+      await expect(api.getMetricList()).rejects.toThrow(
+        'Glassnode API error: The operation was aborted'
+      );
+    });
+  });
+
   describe('getAssetMetadata', () => {
     it('should fetch asset metadata', async () => {
       const fetchFn = createMockFetch({

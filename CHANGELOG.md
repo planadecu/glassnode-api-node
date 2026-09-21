@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.6
+
+- Add a `timeout` config option (ms). When set, each request attempt is aborted via
+  `AbortSignal.timeout()` (a fresh signal per retry), so a stalled connection no longer hangs
+  indefinitely. Unset by default; the no-timeout path still calls a custom `fetch` with the URL
+  only, preserving existing behavior.
+
 ## 0.9.5
 
 - Add `examples/ex.metric-stats.ts`: a console example for `getMetricStats()` that fetches the

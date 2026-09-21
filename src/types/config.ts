@@ -41,6 +41,12 @@ export const GlassnodeConfigSchema = z
 
     /** Base delay in milliseconds between retries (doubles each attempt). */
     retryDelay: z.number().int().positive().default(1000),
+
+    /**
+     * Per-request timeout in milliseconds. When set, each attempt is aborted via
+     * `AbortSignal.timeout()` after this many ms (a fresh signal per retry). Unset = no timeout.
+     */
+    timeout: z.number().int().positive().optional(),
   })
   .refine((c) => c.x402 || (c.apiKey !== undefined && c.apiKey.length > 0), {
     message: 'apiKey is required unless x402 is enabled',

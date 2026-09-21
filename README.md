@@ -102,6 +102,7 @@ const data = await api.callMetric('/market/price_usd_close', {
 | `fetch`      | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (or an x402-wrapped fetch)                                   |
 | `maxRetries` | `number`                                        | `0`                         | Retries for retryable errors (`429`, `5xx`)                                              |
 | `retryDelay` | `number`                                        | `1000`                      | Base delay in ms between retries (doubles each attempt)                                  |
+| `timeout`    | `number`                                        | — (no timeout)              | Per-request timeout in ms; each attempt aborts via `AbortSignal.timeout()`               |
 
 The config is validated at construction time with Zod — an invalid config (e.g. an empty `apiKey`) throws immediately. When `x402` is enabled, `apiKey` is optional but a payment-capable `fetch` is required. Failed requests throw a `GlassnodeApiError` whose message includes the server's error detail (also on `.detail`).
 

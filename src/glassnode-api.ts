@@ -35,6 +35,7 @@ export class GlassnodeAPI {
   private fetchFn: FetchFn;
   private maxRetries: number;
   private retryDelay: number;
+  private timeout?: number;
 
   /**
    * Create a new Glassnode API client
@@ -50,6 +51,7 @@ export class GlassnodeAPI {
     this.fetchFn = (validatedConfig.fetch as FetchFn) ?? globalThis.fetch;
     this.maxRetries = validatedConfig.maxRetries;
     this.retryDelay = validatedConfig.retryDelay;
+    this.timeout = validatedConfig.timeout;
   }
 
   /**
@@ -77,7 +79,12 @@ export class GlassnodeAPI {
       this.logger?.('API call:', redactApiKey(url));
 
       try {
-        const response = await this.fetchFn(url);
+        // Abort the attempt after `timeout` ms (fresh signal per attempt). When no timeout is
+        // configured, keep the single-argument call so a custom `fetch` sees exactly the URL.
+        const response =
+          this.timeout !== undefined
+            ? await this.fetchFn(url, { signal: AbortSignal.timeout(this.timeout) })
+            : await this.fetchFn(url);
 
         if (!response.ok) {
           const error = new GlassnodeApiError(response.status, response.statusText);

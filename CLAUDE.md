@@ -59,6 +59,7 @@ The main class is `GlassnodeAPI` which takes a configuration object:
 - `fetch` (optional) - Custom fetch function for testing or custom HTTP behavior
 - `maxRetries` (optional) - Number of retries for 429/5xx errors (default 0)
 - `retryDelay` (optional) - Base delay in ms between retries (default 1000, doubles each attempt)
+- `timeout` (optional) - Per-request timeout in ms; each attempt aborts via `AbortSignal.timeout()` (default none)
 
 ## Versioning
 
