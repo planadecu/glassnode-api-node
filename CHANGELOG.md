@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.2
+
+- **Security (dev-only):** resolve the 4 open Dependabot alerts (all medium, development scope).
+  The `vitest`/`@vitest/mocker` path-traversal advisory (< 4.1.11) is cleared by the move to
+  vitest 5.0.0. Add `pnpm.overrides` for the two remaining transitive deps: `postcss` `>=8.5.23`
+  (resolves to 8.5.28 — sourceMappingURL arbitrary `.map` read) and `@humanfs/node` `>=0.16.8`
+  (resolves to 0.17.0 — recursive copy follows symlinks). No runtime/consumer impact.
+
 ## 0.9.1
 
 - Dependency maintenance: bump dev and runtime deps to their latest versions allowed by the
