@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.5
+
+- Add `examples/ex.metric-stats.ts`: a console example for `getMetricStats()` that fetches the
+  data-lag percentiles for BTC/SOL active addresses and BTC/SOL OHLC price, and renders a colored
+  in-terminal visualization (two-tone p50▸p99 bars, scaled per metric). Docs in `examples/README.md`.
+
 ## 0.9.3
 
 - CI/infra fix: the new `.npmrc` `ignore-scripts=true` broke the `pnpm/action-setup` bootstrap

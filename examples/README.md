@@ -48,6 +48,25 @@ Run with:
 npx ts-node ex.metric.dump.ts
 ```
 
+### Metric Stats — Data-Lag Visualization (`ex.metric-stats.ts`)
+
+Uses the `getMetricStats()` method (the `/v1/metadata/metric/stats` endpoint) to show a metric's
+current **data lag** as `p50`/`p90`/`p95`/`p99` percentiles per resolution over the trailing 30 days,
+and renders a colored in-console visualization. It inspects four metric/asset pairs:
+
+- **BTC** and **SOL** active addresses (`/addresses/active_count`)
+- **BTC** and **SOL** OHLC price (`/market/price_usd_ohlc`)
+
+Each resolution gets a two-tone bar — solid = typical lag (`p50`), dim tail = worst case (`p99`) —
+scaled per metric. Colors auto-disable when the output isn't a terminal (or set `NO_COLOR=1`).
+Metadata calls don't consume API quota.
+
+Run with:
+
+```bash
+npx ts-node ex.metric-stats.ts
+```
+
 ### x402 Paid Calls — Active Addresses (`ex.x402.active-addresses.ts`)
 
 Demonstrates the **x402 paid API** (no API key — you pay per call in USDC on Base):

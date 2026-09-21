@@ -6,3 +6,6 @@ coverage
 # Environment variables
 .env
 .claude
+
+# Examples use npm (package-lock.json is tracked); ignore a stray pnpm lockfile
+examples/pnpm-lock.yaml
