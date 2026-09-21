@@ -75,9 +75,16 @@ Follow [semver](https://semver.org/):
 
 ## Build Targets
 
-- **Node.js**: `tsc` compiles to `dist/` (CommonJS via NodeNext)
-- **Browser**: Rollup produces UMD and ESM minified bundles in `dist/`
-- Config: `tsconfig.json` (Node), `tsconfig.browser.json` (browser), `tsconfig.test.json` (tests/IDE)
+- **Node.js (CJS)**: `tsc` → `dist/` (CommonJS; the `require` entry). Relative imports in `src/`
+  carry explicit `.js` extensions so the same source also emits valid ESM.
+- **Node.js (ESM)**: `tsc -p tsconfig.esm.json` → `dist/esm/` (unbundled ES modules with `zod`
+  externalized; the `import` entry). A generated `dist/esm/package.json` (`{"type":"module"}`) marks
+  the folder as ESM. `exports` uses per-condition `types` (ESM `.d.ts` for `import`, CJS for
+  `require`) — verified with `publint` + `@arethetypeswrong/cli` in CI.
+- **Browser**: Rollup produces UMD (+ a minified ESM) bundle in `dist/` for the `browser`/`module`
+  fields; source maps are generated `hidden` and not published.
+- Config: `tsconfig.json` (CJS), `tsconfig.esm.json` (ESM), `tsconfig.browser.json` (browser),
+  `tsconfig.test.json` (tests/IDE). The package sets `"type": "commonjs"`.
 
 ## Publishing
 

@@ -34,13 +34,10 @@ jobs:
       - run: pnpm exec tsc -p tsconfig.test.json --noEmit
       - run: pnpm run build
       - run: pnpm run build:browser
-      # Packaging audits. Both currently flag the bundled/minified ESM entry (publint: ambiguous
-      # `types` under `import`; attw: node16-from-ESM "Unexpected module syntax"). They are advisory
-      # until that entry is reworked, at which point drop `continue-on-error` to make them hard gates.
+      # Packaging audits (hard gates): the export map, types resolution and module formats must
+      # stay correct across node10/node16/bundler. publint fails on errors; attw fails on any 💀/🎭/🚭.
       - run: pnpm dlx publint
-        continue-on-error: true
       - run: pnpm dlx @arethetypeswrong/cli --pack .
-        continue-on-error: true
 
   # Prove the package's advertised floor (engines: ">=18"). Vitest 5 needs Node >=22.12, so this
   # job does not run the suite — it builds and smoke-imports the CJS entry on Node 18.
