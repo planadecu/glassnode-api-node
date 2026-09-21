@@ -12,12 +12,14 @@ import {
   BAD_REQUEST_ERROR,
   STATUS_BAD_REQUEST,
   METRIC_METADATA_ENDPOINT,
+  METRIC_STATS_ENDPOINT,
 } from './constants';
 import {
   mockAssetMetadataResponse,
   mockMetricMetadataResponse,
   mockRawMetricMetadataResponse,
   mockMetricListResponse,
+  mockMetricStatsResponse,
 } from './mocks/metadata.mock';
 
 function createMockFetch(response: Partial<Response>) {
@@ -167,6 +169,66 @@ describe('GlassnodeAPI', () => {
       const api = createApi(fetchFn);
 
       await expect(api.getMetricMetadata('/distribution/balance_exchanges')).rejects.toThrow(
+        BAD_REQUEST_ERROR
+      );
+    });
+  });
+
+  describe('getMetricStats', () => {
+    it('should fetch metric stats', async () => {
+      const fetchFn = createMockFetch({
+        ok: true,
+        json: vi.fn().mockResolvedValue(mockMetricStatsResponse),
+      });
+
+      const api = createApi(fetchFn);
+      const result = await api.getMetricStats('/institutions/us_spot_etf_balances_all');
+
+      expect(fetchFn).toHaveBeenCalledWith(
+        `${DEFAULT_API_URL}${METRIC_STATS_ENDPOINT}?path=%2Finstitutions%2Fus_spot_etf_balances_all&api_key=${API_KEY}`
+      );
+      expect(result).toEqual(mockMetricStatsResponse);
+      expect(result.lag[0].resolution['10m'].p50).toBe(620);
+    });
+
+    it('should handle optional params', async () => {
+      const fetchFn = createMockFetch({
+        ok: true,
+        json: vi.fn().mockResolvedValue(mockMetricStatsResponse),
+      });
+
+      const api = createApi(fetchFn);
+      const result = await api.getMetricStats('/institutions/us_spot_etf_balances_all', {
+        a: 'BTC',
+      });
+
+      expect(fetchFn).toHaveBeenCalledWith(
+        `${DEFAULT_API_URL}${METRIC_STATS_ENDPOINT}?path=%2Finstitutions%2Fus_spot_etf_balances_all&a=BTC&api_key=${API_KEY}`
+      );
+      expect(result).toEqual(mockMetricStatsResponse);
+    });
+
+    it('should reject a malformed response', async () => {
+      const fetchFn = createMockFetch({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ lag: [{ unit: 'seconds', window: '30d' }] }),
+      });
+
+      const api = createApi(fetchFn);
+
+      await expect(api.getMetricStats('/institutions/us_spot_etf_balances_all')).rejects.toThrow();
+    });
+
+    it('should handle API errors', async () => {
+      const fetchFn = createMockFetch({
+        ok: false,
+        status: STATUS_BAD_REQUEST,
+        statusText: BAD_REQUEST_STATUS_TEXT,
+      });
+
+      const api = createApi(fetchFn);
+
+      await expect(api.getMetricStats('/institutions/us_spot_etf_balances_all')).rejects.toThrow(
         BAD_REQUEST_ERROR
       );
     });

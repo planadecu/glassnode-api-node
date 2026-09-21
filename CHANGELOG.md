@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.0
+
+- Add `getMetricStats(path, params?)` for the `/v1/metadata/metric/stats` endpoint: returns a
+  metric's current data lag as aggregated percentiles (`p50`/`p90`/`p95`/`p99`) per resolution over
+  the trailing 30 days. Optional `a` param scopes stats to a single asset. New exported types:
+  `MetricStatsResponse`, `MetricLagEntry`, `LagPercentiles` (and their Zod schemas).
+
 ## 0.8.3
 
 - Add a checked-in `.npmrc` with supply-chain hardening defaults: `ignore-scripts=true` (block

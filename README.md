@@ -79,6 +79,9 @@ const metric = await api.getMetricMetadata('/distribution/balance_exchanges', { 
 // List every available metric path
 const metrics = await api.getMetricList();
 
+// Inspect a metric's current data lag (percentiles over the past 30d)
+const stats = await api.getMetricStats('/institutions/us_spot_etf_balances_all');
+
 // Call any metric endpoint directly
 const data = await api.callMetric('/market/price_usd_close', {
   a: 'BTC',
@@ -109,6 +112,7 @@ The config is validated at construction time with Zod — an invalid config (e.g
 | `getAssetMetadata()`               | `Promise<AssetMetadataResponse>`  | Metadata for all supported assets                 |
 | `getMetricMetadata(path, params?)` | `Promise<MetricMetadataResponse>` | Metadata for a specific metric                    |
 | `getMetricList()`                  | `Promise<MetricListResponse>`     | List of all available metric paths                |
+| `getMetricStats(path, params?)`    | `Promise<MetricStatsResponse>`    | Data-lag percentiles for a metric (trailing 30d)  |
 | `callMetric<T>(path, params?)`     | `Promise<T>`                      | Call any metric endpoint directly                 |
 | `callBulkMetric(path, params?)`    | `Promise<BulkResponse>`           | Call a bulk endpoint (all assets in one response) |
 
