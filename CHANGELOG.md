@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.10
+
+- Supply chain: the Husky pre-commit hook now runs `pnpm exec lint-staged` (the pinned
+  devDependency) instead of `pnpm dlx lint-staged`, which fetched an unpinned latest version from
+  the registry on every commit — bypassing both the version pin and the `.npmrc` quarantine.
+- Drop the stale `jest.config.mjs` entry from `.npmignore` (the project migrated to Vitest).
+
 ## 0.9.9
 
 - Export-map hygiene: list `types` first in each `exports` condition (TypeScript resolves

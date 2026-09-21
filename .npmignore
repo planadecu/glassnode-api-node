@@ -5,7 +5,6 @@
 .nvmrc
 CLAUDE.md
 eslint.config.mjs
-jest.config.mjs
 prettier.config.mjs
 tsconfig.json
 yarn.lock

@@ -1,4 +1,4 @@
 #!/bin/sh
 pnpm test
-pnpm dlx lint-staged
+pnpm exec lint-staged
 pnpm run build
