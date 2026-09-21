@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.3
+
+- CI/infra fix: the new `.npmrc` `ignore-scripts=true` broke the `pnpm/action-setup` bootstrap
+  in CI and publish workflows — the standalone `@pnpm/exe` needs its `preinstall` to select the
+  platform binary. Re-enable scripts (`npm_config_ignore_scripts=false`) for that bootstrap step
+  only; project installs still run with `ignore-scripts=true`. No package/runtime change.
+
 ## 0.9.2
 
 - **Security (dev-only):** resolve the 4 open Dependabot alerts (all medium, development scope).
