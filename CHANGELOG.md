@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.7
+
+- Harden retries: cap each wait at the new `maxRetryDelay` config (default 30s), apply **full
+  jitter** to avoid synchronised retries across clients, and honour a `Retry-After` header on
+  `429` for the next wait.
+- A malformed `200` response body is **no longer retried** — JSON parsing now happens outside the
+  retry scope and fails immediately (previously a bad body was retried as if it were a network
+  error). Replace the `throw lastError` tail with a definitive throw.
+
 ## 0.9.6
 
 - Add a `timeout` config option (ms). When set, each request attempt is aborted via

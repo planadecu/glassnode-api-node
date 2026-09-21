@@ -39,8 +39,11 @@ export const GlassnodeConfigSchema = z
     /** Maximum number of retries for retryable errors (429 and 5xx). */
     maxRetries: z.number().int().nonnegative().default(0),
 
-    /** Base delay in milliseconds between retries (doubles each attempt). */
+    /** Base delay in milliseconds between retries (doubles each attempt, then full jitter). */
     retryDelay: z.number().int().positive().default(1000),
+
+    /** Upper bound (ms) for a single retry wait, after exponential growth. */
+    maxRetryDelay: z.number().int().positive().default(30000),
 
     /**
      * Per-request timeout in milliseconds. When set, each attempt is aborted via

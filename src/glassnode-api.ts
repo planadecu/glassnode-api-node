@@ -35,6 +35,7 @@ export class GlassnodeAPI {
   private fetchFn: FetchFn;
   private maxRetries: number;
   private retryDelay: number;
+  private maxRetryDelay: number;
   private timeout?: number;
 
   /**
@@ -51,6 +52,7 @@ export class GlassnodeAPI {
     this.fetchFn = (validatedConfig.fetch as FetchFn) ?? globalThis.fetch;
     this.maxRetries = validatedConfig.maxRetries;
     this.retryDelay = validatedConfig.retryDelay;
+    this.maxRetryDelay = validatedConfig.maxRetryDelay;
     this.timeout = validatedConfig.timeout;
   }
 
@@ -68,42 +70,30 @@ export class GlassnodeAPI {
 
     const url = `${this.apiUrl}${endpoint}?${queryParams}`;
     let lastError: Error | undefined;
+    // Server-requested wait (from a Retry-After header) to use for the *next* attempt, if any.
+    let retryAfterMs: number | undefined;
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       if (attempt > 0) {
-        const delay = this.retryDelay * 2 ** (attempt - 1);
+        const delay = this.nextRetryDelay(attempt, retryAfterMs);
         this.logger?.(`Retry ${attempt}/${this.maxRetries} after ${delay}ms`);
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
 
       this.logger?.('API call:', redactApiKey(url));
 
+      // Transport step — the only part that is retried on failure.
+      let response: Response;
       try {
         // Abort the attempt after `timeout` ms (fresh signal per attempt). When no timeout is
         // configured, keep the single-argument call so a custom `fetch` sees exactly the URL.
-        const response =
+        response =
           this.timeout !== undefined
             ? await this.fetchFn(url, { signal: AbortSignal.timeout(this.timeout) })
             : await this.fetchFn(url);
-
-        if (!response.ok) {
-          const error = new GlassnodeApiError(response.status, response.statusText);
-          if (error.isRetryable && attempt < this.maxRetries) {
-            lastError = error;
-            continue;
-          }
-          // Surface the server's error body (e.g. "Resolution 1h is not allowed") in the message.
-          const detail = await this.readErrorDetail(response);
-          throw detail
-            ? new GlassnodeApiError(response.status, response.statusText, detail)
-            : error;
-        }
-
-        return await response.json();
       } catch (error) {
-        if (error instanceof GlassnodeApiError) {
-          throw error;
-        }
+        // Network/transport failure (including a timeout abort) — retryable.
+        retryAfterMs = undefined;
         if (error instanceof Error) {
           lastError = error;
           if (attempt < this.maxRetries) continue;
@@ -111,9 +101,56 @@ export class GlassnodeAPI {
         }
         throw new Error('Unknown error occurred', { cause: error });
       }
+
+      if (!response.ok) {
+        const error = new GlassnodeApiError(response.status, response.statusText);
+        if (error.isRetryable && attempt < this.maxRetries) {
+          lastError = error;
+          // Honour the server's Retry-After (e.g. on 429) for the next wait, if present.
+          retryAfterMs = this.parseRetryAfter(response);
+          continue;
+        }
+        // Surface the server's error body (e.g. "Resolution 1h is not allowed") in the message.
+        const detail = await this.readErrorDetail(response);
+        throw detail ? new GlassnodeApiError(response.status, response.statusText, detail) : error;
+      }
+
+      // Success. Parsing a 200 body is NOT a transient error, so it is thrown, never retried.
+      try {
+        return (await response.json()) as T;
+      } catch (parseError) {
+        throw new Error('Glassnode API error: failed to parse response body as JSON', {
+          cause: parseError,
+        });
+      }
     }
 
-    throw lastError;
+    // Unreachable in practice (the loop always returns or throws), but keep the throw definitive.
+    throw lastError ?? new Error('Glassnode API request failed');
+  }
+
+  /**
+   * Delay (ms) before the given retry attempt: a server-supplied Retry-After if present,
+   * otherwise exponential backoff (`retryDelay * 2^(attempt-1)`) capped at `maxRetryDelay` and
+   * then full-jittered to avoid synchronised retries across clients.
+   */
+  private nextRetryDelay(attempt: number, retryAfterMs: number | undefined): number {
+    if (retryAfterMs !== undefined) return Math.min(retryAfterMs, this.maxRetryDelay);
+    const base = Math.min(this.retryDelay * 2 ** (attempt - 1), this.maxRetryDelay);
+    return Math.round(Math.random() * base);
+  }
+
+  /**
+   * Parse a `Retry-After` header into milliseconds. Supports both the delay-seconds form and an
+   * HTTP-date. Returns undefined when the header is absent or unparseable.
+   */
+  private parseRetryAfter(response: Response): number | undefined {
+    const raw = response.headers?.get?.('retry-after');
+    if (!raw) return undefined;
+    const seconds = Number(raw);
+    if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+    const dateMs = Date.parse(raw);
+    return Number.isNaN(dateMs) ? undefined : Math.max(0, dateMs - Date.now());
   }
 
   /**

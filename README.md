@@ -101,7 +101,8 @@ const data = await api.callMetric('/market/price_usd_close', {
 | `logger`     | `(message: string, ...args: unknown[]) => void` | —                           | Callback for debug logging (e.g. `console.log`)                                          |
 | `fetch`      | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (or an x402-wrapped fetch)                                   |
 | `maxRetries` | `number`                                        | `0`                         | Retries for retryable errors (`429`, `5xx`)                                              |
-| `retryDelay` | `number`                                        | `1000`                      | Base delay in ms between retries (doubles each attempt)                                  |
+| `retryDelay` | `number`                                        | `1000`                      | Base retry delay in ms (doubles each attempt, then full jitter)                          |
+| `maxRetryDelay` | `number`                                     | `30000`                     | Upper bound in ms for a single retry wait                                                |
 | `timeout`    | `number`                                        | — (no timeout)              | Per-request timeout in ms; each attempt aborts via `AbortSignal.timeout()`               |
 
 The config is validated at construction time with Zod — an invalid config (e.g. an empty `apiKey`) throws immediately. When `x402` is enabled, `apiKey` is optional but a payment-capable `fetch` is required. Failed requests throw a `GlassnodeApiError` whose message includes the server's error detail (also on `.detail`).
@@ -147,9 +148,15 @@ Enable automatic retries with exponential backoff for rate limits (`429`) and se
 const api = new GlassnodeAPI({
   apiKey: 'YOUR_API_KEY',
   maxRetries: 3, // retry up to 3 times
-  retryDelay: 1000, // 1s, then 2s, then 4s
+  retryDelay: 1000, // base delay; grows 1s → 2s → 4s …
+  maxRetryDelay: 30000, // cap a single wait at 30s (default)
 });
 ```
+
+Each retry wait is the exponential delay capped at `maxRetryDelay`, then **full-jittered** (a random
+value between 0 and that cap) to avoid synchronised retries across clients. A `Retry-After` header on a
+`429` is honoured for the next wait. A malformed `200` body is **not** retried (it isn't a transient
+error) — it fails immediately.
 
 Non-retryable errors (e.g. `401`, `404`) fail immediately without retrying.
 

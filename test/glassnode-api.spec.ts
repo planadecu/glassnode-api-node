@@ -624,6 +624,50 @@ describe('GlassnodeAPI', () => {
       expect(fetchFn).toHaveBeenCalledTimes(2);
       expect(result).toEqual(mockMetricListResponse);
     });
+
+    it('does not retry a 200 response with an unparseable body', async () => {
+      const fetchFn = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockRejectedValue(new SyntaxError('Unexpected token < in JSON')),
+      });
+
+      const api = new GlassnodeAPI({
+        apiKey: API_KEY,
+        fetch: fetchFn,
+        maxRetries: 3,
+        retryDelay: 1,
+      });
+
+      // A malformed 200 body is not a transient error — it must fail immediately, not retry.
+      await expect(api.getMetricList()).rejects.toThrow(/JSON/i);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('honors a Retry-After header on 429 and still retries to success', async () => {
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: new Headers({ 'retry-after': '0' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: vi.fn().mockResolvedValue(mockMetricListResponse),
+        });
+
+      const api = new GlassnodeAPI({
+        apiKey: API_KEY,
+        fetch: fetchFn,
+        maxRetries: 1,
+        retryDelay: 1,
+      });
+      const result = await api.getMetricList();
+
+      expect(result).toEqual(mockMetricListResponse);
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('x402 mode', () => {
