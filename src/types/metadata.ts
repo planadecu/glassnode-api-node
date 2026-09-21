@@ -239,6 +239,60 @@ export type MetricMetadataResponse = z.infer<typeof MetricMetadataResponseSchema
 export type MetricListResponse = z.infer<typeof MetricListResponseSchema>;
 
 /**
+ * Lag percentiles schema (p50/p90/p95/p99 for one resolution)
+ */
+export const LagPercentilesSchema = z.object({
+  p50: z.number(),
+  p90: z.number(),
+  p95: z.number(),
+  p99: z.number(),
+});
+
+/**
+ * Lag percentiles type
+ */
+export type LagPercentiles = z.infer<typeof LagPercentilesSchema>;
+
+/**
+ * Metric lag entry schema (one measurement window of data-lag stats).
+ * `resolution` is keyed by interval (e.g. "10m", "1h", "24h") — kept open
+ * as a record so new resolutions don't break validation.
+ */
+export const MetricLagEntrySchema = z.object({
+  /**
+   * Measurement unit (e.g. "seconds")
+   */
+  unit: z.string(),
+
+  /**
+   * Time window over which the stats are computed (e.g. "30d")
+   */
+  window: z.string(),
+
+  /**
+   * Lag percentiles keyed by resolution interval
+   */
+  resolution: z.record(z.string(), LagPercentilesSchema),
+});
+
+/**
+ * Metric lag entry type
+ */
+export type MetricLagEntry = z.infer<typeof MetricLagEntrySchema>;
+
+/**
+ * Metric stats response schema (data-lag percentiles over the trailing 30d)
+ */
+export const MetricStatsResponseSchema = z.object({
+  lag: z.array(MetricLagEntrySchema),
+});
+
+/**
+ * Metric stats response type
+ */
+export type MetricStatsResponse = z.infer<typeof MetricStatsResponseSchema>;
+
+/**
  * Bulk entry schema (one asset's value in a bulk response)
  */
 export const BulkEntrySchema = z.object({

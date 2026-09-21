@@ -2,6 +2,7 @@ import {
   AssetMetadataResponse,
   MetricMetadataResponse,
   MetricListResponse,
+  MetricStatsResponse,
 } from '../../src/types/metadata';
 import { z } from 'zod';
 import { MetricMetadataSchema } from '../../src/types/metadata';
@@ -107,3 +108,18 @@ export const mockMetricListResponse: MetricListResponse = [
   '/market/volume_usd',
   '/indicators/sopr',
 ];
+
+// Mock metric stats response (data-lag percentiles over the trailing 30d)
+export const mockMetricStatsResponse: MetricStatsResponse = {
+  lag: [
+    {
+      unit: 'seconds',
+      window: '30d',
+      resolution: {
+        '10m': { p50: 620, p90: 780, p95: 900, p99: 1200 },
+        '1h': { p50: 3700, p90: 4200, p95: 4800, p99: 6000 },
+        '24h': { p50: 90000, p90: 95000, p95: 98000, p99: 120000 },
+      },
+    },
+  ],
+};

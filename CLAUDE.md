@@ -12,13 +12,27 @@ This document provides context for Claude when working with this project.
 
 ## Development Workflow
 
-- Use Node.js v24
 - Use pnpm as package manager
 - Run tests with `pnpm test` (Vitest, single run); `pnpm run test:watch` and `pnpm run test:coverage` are also available
 - Lint code with `pnpm run lint`
 - Format code with `pnpm run format`
 - Build the project with `pnpm run build`
 - Build browser bundles with `pnpm run build:browser`
+
+### Node.js versions — two distinct baselines
+
+Keep these separate; they answer different questions:
+
+- **Consumers of the published package** need **Node.js >= 18**. This is the contract in
+  `package.json` `engines`. The shipped code uses only universal APIs plus global `fetch`
+  (stable since Node 18) — no `node:` builtins. To enforce this at compile time, `@types/node`
+  is pinned to the **floor** (`^18`), not the latest, so the compiler rejects any API newer
+  than Node 18. Do **not** bump `@types/node` to track the dev runtime — bump it only if the
+  minimum supported Node is intentionally raised (a breaking change → major/`engines` bump).
+- **Developers of this repo** run **Node.js 24** (`.nvmrc`, CI workflows). The dev toolchain
+  sets the floor here: `vitest` 5 requires Node `>= 22.12`, so the test suite cannot run on
+  Node 18/20 — that constraint is dev-only and never reaches consumers (vitest is a
+  devDependency).
 
 ## Coding Standards
 
@@ -30,10 +44,11 @@ This document provides context for Claude when working with this project.
 
 ### TypeScript version
 
-- Pinned to TypeScript **6.x** (`^6.0.3`), **not** 7.x. TypeScript 7.0 hard-crashes
-  `typescript-eslint` (its peer range caps at `<6.1.0`), which breaks `pnpm run lint` in
-  CI and the Husky pre-commit hook. Only bump to 7.x once `typescript-eslint` ships
-  TypeScript 7 support.
+- Pinned to TypeScript **6.x** (`^6.0.3`), **not** 7.x. `typescript-eslint` still declares its
+  `typescript` peer as `>=4.8.4 <6.1.0` (verified on the current latest, `8.70.0` — its canary
+  is also 8.x), so TypeScript 7.0 breaks `pnpm run lint` in CI and the Husky pre-commit hook.
+  `6.0.3` is already the newest stable 6.x, so TypeScript needs no bump. Only move to 7.x once
+  `typescript-eslint` ships a release whose peer range accepts it.
 
 ## API Client
 

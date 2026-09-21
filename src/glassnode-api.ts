@@ -14,6 +14,8 @@ import {
   MetricMetadataResponseSchema,
   MetricListResponse,
   MetricListResponseSchema,
+  MetricStatsResponse,
+  MetricStatsResponseSchema,
   BulkResponse,
   BulkResponseSchema,
 } from './types/metadata';
@@ -153,6 +155,25 @@ export class GlassnodeAPI {
     const response = await this.request('/v1/metadata/metric', { path: metricPath, ...params });
     // Validate response with Zod schema
     return MetricMetadataResponseSchema.parse(response);
+  }
+
+  /**
+   * Get data-lag statistics for a specific metric.
+   * Returns the current data lag as aggregated percentiles over the past 30 days.
+   * @param metricPath Path of the metric (e.g. /institutions/us_spot_etf_balances_all)
+   * @param params Optional query parameters (e.g. `a` to scope stats to an asset)
+   * @returns Promise resolving to validated metric stats
+   */
+  async getMetricStats(
+    metricPath: string,
+    params: Record<string, string> = {}
+  ): Promise<MetricStatsResponse> {
+    const response = await this.request('/v1/metadata/metric/stats', {
+      path: metricPath,
+      ...params,
+    });
+    // Validate response with Zod schema
+    return MetricStatsResponseSchema.parse(response);
   }
 
   /**

@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.9.3
+
+- CI/infra fix: the new `.npmrc` `ignore-scripts=true` broke the `pnpm/action-setup` bootstrap
+  in CI and publish workflows — the standalone `@pnpm/exe` needs its `preinstall` to select the
+  platform binary. Re-enable scripts (`npm_config_ignore_scripts=false`) for that bootstrap step
+  only; project installs still run with `ignore-scripts=true`. No package/runtime change.
+
+## 0.9.2
+
+- **Security (dev-only):** resolve the 4 open Dependabot alerts (all medium, development scope).
+  The `vitest`/`@vitest/mocker` path-traversal advisory (< 4.1.11) is cleared by the move to
+  vitest 5.0.0. Add `pnpm.overrides` for the two remaining transitive deps: `postcss` `>=8.5.23`
+  (resolves to 8.5.28 — sourceMappingURL arbitrary `.map` read) and `@humanfs/node` `>=0.16.8`
+  (resolves to 0.17.0 — recursive copy follows symlinks). No runtime/consumer impact.
+
+## 0.9.1
+
+- Dependency maintenance: bump dev and runtime deps to their latest versions allowed by the
+  repo's `.npmrc` supply-chain policy (`minimum-release-age`, 7 days): `zod` 4.6.5,
+  `typescript-eslint` 8.70.0, `eslint` 10.10.0, `vitest` + `@vitest/coverage-v8` 5.0.0,
+  `rollup` 4.63.2, `viem` 2.56.5, `@x402/{fetch,evm}` 2.25.0, `lint-staged` 17.5.1,
+  `prettier` 3.9.6. `typescript` stays on 6.x (`typescript-eslint`'s peer still caps at
+  `<6.1.0`).
+- Pin `@types/node` to the **Node 18 floor** (`^18`) rather than the latest, so the compiler
+  enforces the package's `>=18` runtime support instead of merely tracking the dev runtime.
+- Docs: clarify in `CLAUDE.md` that the library targets Node **>=18** for consumers while the
+  dev environment runs Node **24** (vitest 5 requires dev Node >=22.12); refresh the
+  TypeScript-6.x pin rationale.
+
+## 0.9.0
+
+- Add `getMetricStats(path, params?)` for the `/v1/metadata/metric/stats` endpoint: returns a
+  metric's current data lag as aggregated percentiles (`p50`/`p90`/`p95`/`p99`) per resolution over
+  the trailing 30 days. Optional `a` param scopes stats to a single asset. New exported types:
+  `MetricStatsResponse`, `MetricLagEntry`, `LagPercentiles` (and their Zod schemas).
+
+## 0.8.3
+
+- Add a checked-in `.npmrc` with supply-chain hardening defaults: `ignore-scripts=true` (block
+  install-time lifecycle scripts) and `minimum-release-age=10080` (require dependencies to be at
+  least 7 days old before install). Repo-config only; not published in the package tarball.
+
 ## 0.8.0
 
 - Add opt-in, Node-first **x402 payment support**: `x402: true` config preset (routes to
