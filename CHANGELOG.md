@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.9
+
+- Export-map hygiene: list `types` first in each `exports` condition (TypeScript resolves
+  conditions in order) and add a `"./package.json"` export so tooling can read the manifest.
+
 ## 0.9.8
 
 - Packaging hygiene: `build` now cleans `dist/` first (new `clean` script) so a stale local build

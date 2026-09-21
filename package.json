@@ -1,6 +1,6 @@
 {
   "name": "glassnode-api",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "description": "Typescript client for the Glassnode API (Node.js and Browser)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -65,15 +65,16 @@
   "sideEffects": false,
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/glassnode-api.esm.min.js",
-      "require": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.js"
     },
     "./x402": {
       "types": "./dist/x402.d.ts",
       "import": "./dist/x402.js",
       "require": "./dist/x402.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
