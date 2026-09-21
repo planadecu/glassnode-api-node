@@ -1,17 +1,15 @@
 {
   "name": "glassnode-api",
-  "version": "0.9.7",
+  "version": "0.9.8",
   "description": "Typescript client for the Glassnode API (Node.js and Browser)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "browser": "dist/glassnode-api.umd.min.js",
   "module": "dist/glassnode-api.esm.min.js",
   "files": [
-    "dist/*.js",
-    "dist/*.d.ts",
-    "dist/glassnode-api.*.min.js",
-    "dist/glassnode-api.*.min.js.map",
-    "dist/types"
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.js.map"
   ],
   "repository": {
     "type": "git",
@@ -21,7 +19,7 @@
     "url": "https://github.com/planadecu/glassnode-api-node/issues"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "pnpm run clean && tsc",
     "build:browser": "rollup -c",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -33,7 +31,8 @@
     "prepublishOnly": "pnpm run build && pnpm run build:browser",
     "preversion": "pnpm run lint",
     "version": "pnpm run format && git add -A src",
-    "postversion": "git push && git push --tags"
+    "postversion": "git push && git push --tags",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "keywords": [
     "glassnode",

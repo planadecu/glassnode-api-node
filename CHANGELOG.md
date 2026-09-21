@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.8
+
+- Packaging hygiene: `build` now cleans `dist/` first (new `clean` script) so a stale local build
+  can never be published, and the `files` allowlist is narrowed to
+  `dist/**/*.{js,d.ts,js.map}`. Verified: `npm pack` ships 19 files (~339 KB packed) with no stale
+  bundles. (Note: CI already built from a clean checkout, so released tarballs were never affected;
+  this closes the gap for a local `npm publish`.)
+
 ## 0.9.7
 
 - Harden retries: cap each wait at the new `maxRetryDelay` config (default 30s), apply **full
