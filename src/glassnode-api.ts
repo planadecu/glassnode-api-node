@@ -5,8 +5,8 @@ import {
   FetchFn,
   DEFAULT_API_URL,
   X402_API_URL,
-} from './types/config';
-import { GlassnodeApiError } from './errors';
+} from './types/config.js';
+import { GlassnodeApiError } from './errors.js';
 import {
   AssetMetadataResponse,
   MetricMetadataResponse,
@@ -18,7 +18,7 @@ import {
   MetricStatsResponseSchema,
   BulkResponse,
   BulkResponseSchema,
-} from './types/metadata';
+} from './types/metadata.js';
 
 /** Mask the `api_key` query-param value so it never reaches logs. */
 function redactApiKey(url: string): string {

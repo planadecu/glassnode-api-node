@@ -1,14 +1,16 @@
 {
   "name": "glassnode-api",
-  "version": "0.9.13",
+  "version": "0.10.0",
+  "type": "commonjs",
   "description": "Typescript client for the Glassnode API (Node.js and Browser)",
   "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "types": "./dist/index.d.ts",
   "browser": "dist/glassnode-api.umd.min.js",
-  "module": "dist/glassnode-api.esm.min.js",
+  "module": "./dist/esm/index.js",
   "files": [
     "dist/**/*.js",
-    "dist/**/*.d.ts"
+    "dist/**/*.d.ts",
+    "dist/esm/package.json"
   ],
   "repository": {
     "type": "git",
@@ -18,7 +20,7 @@
     "url": "https://github.com/planadecu/glassnode-api-node/issues"
   },
   "scripts": {
-    "build": "pnpm run clean && tsc",
+    "build": "pnpm run clean && pnpm run build:cjs && pnpm run build:esm",
     "build:browser": "rollup -c",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -31,7 +33,9 @@
     "preversion": "pnpm run lint",
     "version": "pnpm run format && git add -A src",
     "postversion": "git push && git push --tags",
-    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build:cjs": "tsc",
+    "build:esm": "tsc -p tsconfig.esm.json && node -e \"require('node:fs').writeFileSync('dist/esm/package.json', JSON.stringify({type:'module'})+'\\n')\""
   },
   "keywords": [
     "glassnode",
@@ -64,14 +68,24 @@
   "sideEffects": false,
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/glassnode-api.esm.min.js",
-      "require": "./dist/index.js"
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
     },
     "./x402": {
-      "types": "./dist/x402.d.ts",
-      "import": "./dist/x402.js",
-      "require": "./dist/x402.js"
+      "import": {
+        "types": "./dist/esm/x402.d.ts",
+        "default": "./dist/esm/x402.js"
+      },
+      "require": {
+        "types": "./dist/x402.d.ts",
+        "default": "./dist/x402.js"
+      }
     },
     "./package.json": "./package.json"
   },
@@ -139,6 +153,13 @@
       "brace-expansion@5": ">=5.0.6",
       "postcss": ">=8.5.23",
       "@humanfs/node": ">=0.16.8"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "x402": [
+        "./dist/x402.d.ts"
+      ]
     }
   }
 }

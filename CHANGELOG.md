@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.10.0
+
+- **Real Node ESM entry.** The `import` condition now resolves to an unbundled ESM build
+  (`dist/esm/`, emitted by `tsc -p tsconfig.esm.json`) with `zod` **externalized**, instead of the
+  minified browser bundle with `zod` inlined. This fixes `arethetypeswrong`'s
+  `node16 (from ESM): Unexpected module syntax` / `Masquerading as CJS`, removes the
+  `MODULE_TYPELESS_PACKAGE_JSON` warning, and lets ESM + CJS consumers share one `zod` instance.
+- `exports` now uses per-condition `types` (ESM `.d.ts` under `import`, CJS under `require`), adds a
+  `typesVersions` map for the `./x402` subpath under legacy `node10` resolution, and the package
+  declares `"type": "commonjs"`. `publint` and `@arethetypeswrong/cli` are now **green across all
+  module modes** and enforced as hard CI gates.
+- Relative imports in `src/` carry explicit `.js` extensions (required for Node ESM; harmless for
+  CJS). No public API change.
+
 ## 0.9.12
 
 - Stop shipping browser-bundle source maps (they were ~84% of the tarball). Rollup now emits
