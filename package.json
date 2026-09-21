@@ -1,6 +1,6 @@
 {
   "name": "glassnode-api",
-  "version": "0.9.11",
+  "version": "0.9.12",
   "description": "Typescript client for the Glassnode API (Node.js and Browser)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -8,8 +8,7 @@
   "module": "dist/glassnode-api.esm.min.js",
   "files": [
     "dist/**/*.js",
-    "dist/**/*.d.ts",
-    "dist/**/*.js.map"
+    "dist/**/*.d.ts"
   ],
   "repository": {
     "type": "git",

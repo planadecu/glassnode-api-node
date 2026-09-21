@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.12
+
+- Stop shipping browser-bundle source maps (they were ~84% of the tarball). Rollup now emits
+  `sourcemap: 'hidden'` (maps still generated locally, but no `sourceMappingURL` comment in the
+  published bundle, so no dangling reference) and `.map` is dropped from the `files` allowlist.
+  Published tarball shrinks from ~339 KB packed / 1.34 MB unpacked to **~70 KB packed / 0.25 MB
+  unpacked** (17 files). Runtime code is unchanged.
+
 ## 0.9.11
 
 - CI hardening: enforce coverage thresholds (`test:coverage` replaces `pnpm test` in CI and the

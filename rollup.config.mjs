@@ -10,13 +10,15 @@ export default {
       file: 'dist/glassnode-api.umd.min.js',
       format: 'umd',
       name: 'GlassnodeAPI',
-      sourcemap: true,
+      // 'hidden' still writes the .map locally but omits the sourceMappingURL comment, so the
+      // published bundle (we no longer ship .map — see package.json "files") has no dangling ref.
+      sourcemap: 'hidden',
       plugins: [terser()],
     },
     {
       file: 'dist/glassnode-api.esm.min.js',
       format: 'es',
-      sourcemap: true,
+      sourcemap: 'hidden',
       plugins: [terser()],
     },
   ],
