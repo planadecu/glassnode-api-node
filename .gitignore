@@ -9,3 +9,6 @@ coverage
 
 # Examples use npm (package-lock.json is tracked); ignore a stray pnpm lockfile
 examples/pnpm-lock.yaml
+
+# Internal design/planning notes live under .claude/docs/ (not versioned)
+/docs
