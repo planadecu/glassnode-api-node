@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.22.1
+
+- Fixed: a non-JSON error body (e.g. an HTML page from a proxy) is now redacted before it is cut to
+  300 characters for `GlassnodeApiError.detail` and the paid-request `GlassnodePaymentError`. Before,
+  the body was cut first, so an API key echoed raw (not as `api_key=…`) across the 300-character
+  edge lost its tail, no longer matched the key, and its leading characters reached the error
+  message and `detail` unmasked. A hostile proxy could pad the body to leak almost the whole key.
+  Because masking shortens the text, the 300 characters can now include text that followed a
+  masked key. JSON `message`/`error` values are unchanged (they were never cut).
+
 ## 0.22.0
 
 - Added: opt-in response validation for `callMetric`. Pass a Zod schema as `options.schema` —

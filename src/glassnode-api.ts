@@ -537,8 +537,7 @@ export class GlassnodeAPI {
           }
           // Surface the server's error body (e.g. "Resolution 1h is not allowed") in the message,
           // with the API key masked: a server or proxy may echo the request URL or the key.
-          const rawDetail = await readErrorDetail(response);
-          const detail = rawDetail ? this.redact(rawDetail) : undefined;
+          const detail = await readErrorDetail(response, [this.apiKey]);
           throw detail ? new GlassnodeApiError(response.status, statusText, detail) : error;
         }
 

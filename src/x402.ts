@@ -266,8 +266,7 @@ function toPaidTransportError(error: unknown, keys: string[]): GlassnodePaymentE
  * request's own key, see `redactSecrets`); no request header (signature) is used.
  */
 async function toPaidHttpError(response: Response, keys: string[]): Promise<GlassnodePaymentError> {
-  const rawDetail = await readErrorDetail(response);
-  const detail = rawDetail ? redactSecrets(rawDetail, keys) : undefined;
+  const detail = await readErrorDetail(response, keys);
   const statusText = redactSecrets(response.statusText, keys);
   const apiError = new GlassnodeApiError(response.status, statusText, detail);
   const label = [statusText, detail].filter(Boolean).join(' — ');

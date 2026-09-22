@@ -337,3 +337,110 @@ describe('GlassnodePaymentError never carries the API key', () => {
     }
   });
 });
+
+// --- truncation of non-JSON error bodies ---------------------------------------------------
+
+/**
+ * A non-JSON error body is cut to its first 300 characters. The key must be masked before that
+ * cut: masking after it misses a key that straddles the edge, and its prefix survives.
+ */
+describe('a non-JSON error body is redacted before it is truncated', () => {
+  // The reviewer's key: only [a-z0-9-], so the raw, percent- and form-encoded forms coincide.
+  const PLAIN_KEY = 'sk-live-1234567890abcdef';
+  const LIMIT = 300;
+
+  /** No string field of the error (or its library-built cause) holds any 4+ char key prefix. */
+  function expectNoKeyPrefix(err: unknown, key: string): void {
+    const errors = [err];
+    const cause = (err as { cause?: unknown }).cause;
+    if (cause instanceof GlassnodeApiError) errors.push(cause);
+    for (const e of errors) {
+      for (const text of stringFields(e)) expect(text).not.toContain(key.slice(0, 4));
+    }
+  }
+
+  // [name, body, expected detail]
+  const cases = (key: string): Array<[string, string, string]> => [
+    [
+      "reviewer's reproduction: key starts 9 characters before the cut",
+      'x'.repeat(290) + 'Z' + key,
+      'x'.repeat(290) + 'Z***',
+    ],
+    [
+      'key straddling the cut, text after it',
+      'x'.repeat(LIMIT - 5) + key + 'y'.repeat(100),
+      'x'.repeat(LIMIT - 5) + '***' + 'yy',
+    ],
+    ['key at the very end of a long body', 'x'.repeat(5000) + key, 'x'.repeat(LIMIT)],
+    [
+      'key echoed several times, one copy across the cut',
+      `${key} ` + 'x'.repeat(LIMIT - key.length - 6) + key + ` ${key}`,
+      '*** ' + 'x'.repeat(LIMIT - key.length - 6) + '*** ***',
+    ],
+  ];
+
+  for (const apiKeyLocation of LOCATIONS) {
+    describe(`apiKeyLocation: ${apiKeyLocation}`, () => {
+      for (const key of [PLAIN_KEY, KEY]) {
+        for (const [name, body, expected] of cases(key)) {
+          it(`${name} (key ${JSON.stringify(key)})`, async () => {
+            const api = new GlassnodeAPI({
+              apiKey: key,
+              apiKeyLocation,
+              fetch: vi.fn().mockResolvedValue(errorResponse(body)) as typeof fetch,
+            });
+            const err = (await caught(api.getMetricList())) as GlassnodeApiError;
+            expect(err).toBeInstanceOf(GlassnodeApiError);
+            expect(err.detail).toBe(expected);
+            expect(err.detail!.length).toBeLessThanOrEqual(LIMIT);
+            expectNoKey(err, key);
+            expectNoKeyPrefix(err, key);
+          });
+        }
+      }
+
+      it('paid HTTP error: a key straddling the cut does not leak its prefix', async () => {
+        const body = 'x'.repeat(290) + 'Z' + PLAIN_KEY;
+        const baseFetch = vi.fn(async (input: RequestInfo | URL) =>
+          isPaid(input) ? errorResponse(body, 502, 'Bad Gateway') : response402()
+        );
+        const paidFetch = await createX402Fetch({
+          account: fakeAccount(),
+          fetch: baseFetch as typeof fetch,
+        });
+        const api = new GlassnodeAPI({
+          x402: true,
+          apiKey: PLAIN_KEY,
+          apiKeyLocation,
+          fetch: paidFetch,
+        });
+        const err = (await caught(api.getMetricList())) as GlassnodePaymentError;
+        expect(err).toBeInstanceOf(GlassnodePaymentError);
+        expect((err.cause as GlassnodeApiError).detail).toBe('x'.repeat(290) + 'Z***');
+        expectNoKey(err, PLAIN_KEY);
+        expectNoKeyPrefix(err, PLAIN_KEY);
+      });
+
+      it('402 refused after payment: a key straddling the cut does not leak its prefix', async () => {
+        const body = 'x'.repeat(LIMIT - 5) + PLAIN_KEY + 'y'.repeat(50);
+        const baseFetch = vi.fn(async (input: RequestInfo | URL) =>
+          isPaid(input) ? errorResponse(body, 402, 'Payment Required') : response402()
+        );
+        const paidFetch = await createX402Fetch({
+          account: fakeAccount(),
+          fetch: baseFetch as typeof fetch,
+        });
+        const api = new GlassnodeAPI({
+          x402: true,
+          apiKey: PLAIN_KEY,
+          apiKeyLocation,
+          fetch: paidFetch,
+        });
+        const err = (await caught(api.getMetricList())) as GlassnodeApiError;
+        expect(err).toBeInstanceOf(GlassnodeApiError);
+        expect(err.detail).toBe('x'.repeat(LIMIT - 5) + '***yy');
+        expectNoKeyPrefix(err, PLAIN_KEY);
+      });
+    });
+  }
+});
