@@ -34,6 +34,10 @@ jobs:
       - run: pnpm exec tsc -p tsconfig.test.json --noEmit
       - run: pnpm run build
       - run: pnpm run build:browser
+      # Deep type-resolution guard that attw can't provide (it runs with skipLibCheck on): a
+      # node16 consumer importing `glassnode-api/x402` with skipLibCheck:false. Catches a public
+      # `.d.ts` accidentally re-importing an optional peer's types (e.g. viem → TS1541).
+      - run: pnpm exec tsc -p typecheck/x402-node16/tsconfig.json
       # Packaging audits (hard gates): the export map, types resolution and module formats must
       # stay correct across node10/node16/bundler. publint fails on errors; attw fails on any 💀/🎭/🚭.
       - run: pnpm dlx publint
