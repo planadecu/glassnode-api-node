@@ -658,10 +658,14 @@ describe('GlassnodeAPI', () => {
     it('gives a helpful 402 message and marks it non-retryable', () => {
       const err = new GlassnodeApiError(402, 'Payment Required');
       expect(err.message).toContain('Payment required');
-      // Covers the funded-but-failed x402 case (payment did not settle), not only "no wrapper"
-      expect(err.message).toContain('USDC');
-      expect(err.message).toContain('maxPaymentPerCall');
+      // Case (a): a plain fetch against a paid endpoint -> point at the x402 helper
       expect(err.message).toContain('glassnode-api/x402');
+      // Case (b): payment attempted but the server still answered 402 (e.g. not enough USDC)
+      expect(err.message).toContain('USDC');
+      // An over-ceiling price never reaches a 402 any more: createX402Fetch rejects first with
+      // GlassnodePaymentError, so the message must not advise checking maxPaymentPerCall here.
+      expect(err.message).toContain('GlassnodePaymentError');
+      expect(err.message).not.toMatch(/within maxPaymentPerCall/);
       expect(err.isRetryable).toBe(false);
     });
 

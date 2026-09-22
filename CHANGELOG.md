@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.1
+
+- Fixed stale advice in the HTTP 402 `GlassnodeApiError` message. It told callers to check that
+  the price was within `maxPaymentPerCall`, but `createX402Fetch()` now rejects an over-ceiling
+  price with `GlassnodePaymentError` before any paid request, so that case never surfaces as a 402. The message now names the two causes a 402 can still have — the fetch is not x402-capable
+  (use `createX402Fetch` from `glassnode-api/x402`), or the server refused the payment (e.g.
+  insufficient USDC on Base) — and points to `GlassnodePaymentError` for the price ceiling. Only
+  the message text changes; `status`, `detail` and retry behavior are unchanged.
+
 ## 0.17.0
 
 - **New:** `apiKeyLocation` config option (`'query'` | `'header'`, default `'query'`). With
