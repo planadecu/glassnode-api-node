@@ -343,14 +343,14 @@ export class GlassnodeAPI {
    * @param params Queried parameters for the metric
    * @returns Promise resolving to validated metric metadata
    * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
-   *   malformed or `params` contains `path` or `api_key`
+   *   malformed, `params.f` is anything but `json`, or `params` contains `path` or `api_key`
    */
   async getMetricMetadata(
     metricPath: string,
     params: Record<string, string> = {}
   ): Promise<MetricMetadataResponse> {
     assertMetricPath(metricPath);
-    assertParams(params, { reserved: ['path'] });
+    assertParams(params, { format: true, reserved: ['path'] });
     const endpoint = '/v1/metadata/metric';
     const response = await this.request(endpoint, { path: metricPath, ...params });
     return validateResponse(MetricMetadataResponseSchema, response, endpoint);
@@ -363,14 +363,14 @@ export class GlassnodeAPI {
    * @param params Optional query parameters (e.g. `a` to scope stats to an asset)
    * @returns Promise resolving to validated metric stats
    * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
-   *   malformed or `params` contains `path` or `api_key`
+   *   malformed, `params.f` is anything but `json`, or `params` contains `path` or `api_key`
    */
   async getMetricStats(
     metricPath: string,
     params: Record<string, string> = {}
   ): Promise<MetricStatsResponse> {
     assertMetricPath(metricPath);
-    assertParams(params, { reserved: ['path'] });
+    assertParams(params, { format: true, reserved: ['path'] });
     const endpoint = '/v1/metadata/metric/stats';
     const response = await this.request(endpoint, { path: metricPath, ...params });
     return validateResponse(MetricStatsResponseSchema, response, endpoint);

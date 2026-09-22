@@ -126,24 +126,30 @@ describe('metric path validation', () => {
 });
 
 describe('reserved query parameters', () => {
-  it.each(['csv', 'CSV', 'xml', ''])('callMetric rejects f=%j', async (f) => {
-    const fetchFn = neverFetch();
-    const err = await caught(
-      client(fetchFn).callMetric('/market/price_usd_close', { a: 'BTC', f })
-    );
-    expect(err).toBeInstanceOf(GlassnodeInputError);
-    expect((err as GlassnodeInputError).argument).toBe('params.f');
-    expect((err as Error).message).toMatch(/only supports JSON/);
-    expect(fetchFn).not.toHaveBeenCalled();
-  });
+  for (const method of PATH_METHODS) {
+    it.each(['csv', 'CSV', 'xml', ''])(`${method} rejects f=%j`, async (f) => {
+      const fetchFn = neverFetch();
+      const err = await caught(
+        invoke(client(fetchFn), method, '/market/price_usd_close', { a: 'BTC', f })
+      );
+      expect(err).toBeInstanceOf(GlassnodeInputError);
+      expect((err as GlassnodeInputError).argument).toBe('params.f');
+      expect((err as Error).message).toMatch(/only supports JSON/);
+      expect(fetchFn).not.toHaveBeenCalled();
+    });
 
-  it('callBulkMetric rejects f=csv', async () => {
-    const fetchFn = neverFetch();
-    const err = await caught(client(fetchFn).callBulkMetric('/market/marketcap_usd', { f: 'csv' }));
-    expect(err).toBeInstanceOf(GlassnodeInputError);
-    expect((err as GlassnodeInputError).argument).toBe('params.f');
-    expect(fetchFn).not.toHaveBeenCalled();
-  });
+    it.each(['json', 'JSON'])(`${method} does not reject an explicit f=%j`, async (f) => {
+      const fetchFn = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue([]) });
+      // The canned `[]` body may fail response validation for some methods; only the input
+      // check matters here: the request must be sent and must not be a GlassnodeInputError.
+      const err = await invoke(client(fetchFn), method, '/market/price_usd_close', { f }).then(
+        () => undefined,
+        (e: unknown) => e
+      );
+      expect(err).not.toBeInstanceOf(GlassnodeInputError);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+  }
 
   it.each(['json', 'JSON'])('callMetric still accepts an explicit f=%j', async (f) => {
     const fetchFn = vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue([]) });

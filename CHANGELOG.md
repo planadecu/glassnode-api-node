@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.15.0
+
+- **Behavior change (observable for callers):** `getMetricMetadata()` and `getMetricStats()` now
+  apply the same JSON-only `f` rule as `callMetric()`/`callBulkMetric()`. Passing `f` other than
+  `json` (case-insensitive; e.g. `{ f: 'csv' }`) rejects with a `GlassnodeInputError`
+  (`argument: 'params.f'`) before any request is sent. Previously the request was sent and failed
+  later as a `GlassnodeValidationError` or a JSON parse error. An explicit `f: 'json'` is still
+  accepted and passed through unchanged. Minor bump: a call that already could not succeed now
+  fails earlier and with a different error class.
+
 ## 0.14.4
 
 - Documented how timestamps are represented in responses. `MetricMetadata.modified` is the only

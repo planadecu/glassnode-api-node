@@ -130,9 +130,10 @@ Arguments are checked before any request is sent; invalid input rejects with a
   segments, a query string (`/market/price_usd_close?a=BTC`) or a full URL are all rejected
   (a missing slash gets a "did you mean" hint). Pass query parameters via `params`.
 - **Parameters the client sets itself** cannot be overridden: `api_key` is always rejected (set
-  `apiKey` in the config), `f` is rejected unless it is `json` in `callMetric`/`callBulkMetric`
-  (the client only parses JSON), and `path` is rejected in `getMetricMetadata`/`getMetricStats`
-  (it comes from the `path` argument).
+  `apiKey` in the config), `f` is rejected unless it is `json` (case-insensitive) in
+  `callMetric`, `callBulkMetric`, `getMetricMetadata` and `getMetricStats` (the client only parses
+  JSON), and `path` is rejected in `getMetricMetadata`/`getMetricStats` (it comes from the `path`
+  argument).
 
 ## Timestamps
 
