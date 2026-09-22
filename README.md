@@ -721,9 +721,13 @@ GLASSNODE_API_KEY=... node scripts/record-fixtures.mjs
   data calls (a `{t, v}` series, a `{t, o}` series and a bulk response), which do.
 - It writes one pretty-printed `<name>.json` per response plus `manifest.json` (endpoint, params,
   HTTP status, capture date and client version for each fixture). A response over 2 MB is trimmed
-  to a representative subset, and the manifest says so.
+  to a representative subset (the first entries of a top-level array, or of each top-level array
+  property such as a bulk response's `data`), and the manifest says so. A response that cannot be
+  trimmed below 2 MB aborts the run.
+- Redirects are never followed, so the key is never resent to another host (or over plain http):
+  any 3xx aborts with its status and target.
 - Any HTTP or network error aborts with the status and endpoint, and the run also aborts if the key
-  appears anywhere in the output; in both cases nothing is written.
+  appears anywhere in the output; in all these cases nothing is written.
 - `--base-url <url>` (or `GLASSNODE_API_URL`) points it at another server, e.g. a local mock;
   `--out-dir <dir>` writes somewhere other than `test/fixtures/contract/`.
 

@@ -10,6 +10,8 @@
 //   appears in a URL.
 // - --base-url (or GLASSNODE_API_URL) defaults to https://api.glassnode.com; plain http is only
 //   allowed for localhost, so the key is never sent unencrypted to a remote host.
+// - Redirects are never followed (`redirect: 'manual'`): fetch would resend the X-Api-Key header
+//   to whatever host a 3xx names — including over plain http — so any 3xx aborts the run instead.
 // - Every response is captured before anything is written: any HTTP, network or JSON error aborts
 //   the run with no files written, as does finding the key anywhere in the output.
 /* global process, console, setTimeout, AbortSignal, URL, URLSearchParams, Buffer */
@@ -25,7 +27,9 @@ const DELAY_MS = 1000; // pause between calls, to stay well clear of rate limits
 const TIMEOUT_MS = 60_000; // per request
 
 // Size policy: a fixture whose pretty-printed JSON exceeds MAX_FIXTURE_BYTES is trimmed to a
-// representative subset (see trimAssets / trimArray) and the manifest records that it was.
+// representative subset (see trimAssets / trimArray) and the manifest records that it was. If a
+// response cannot be trimmed below the limit (no array to trim, or still too large after
+// trimming) the run aborts rather than writing an oversized fixture.
 const MAX_FIXTURE_BYTES = 2 * 1024 * 1024;
 const TRIM_KEEP_FIRST = 200;
 
@@ -181,6 +185,19 @@ function describe(call) {
   return query ? `${call.endpoint}?${query}` : call.endpoint;
 }
 
+// The redirect target for an error message: origin and path only (a query or fragment may carry
+// a token), with the key masked in case the server reflected it into the Location.
+function describeLocation(response, needles) {
+  const location = response.headers.get('location');
+  if (!location) return '(no Location header)';
+  try {
+    const url = new URL(location, response.url);
+    return mask(url.origin + url.pathname, needles);
+  } catch {
+    return '(unparseable Location header)';
+  }
+}
+
 async function capture(call, baseUrl, key, needles) {
   const target = describe(call);
   let response;
@@ -188,8 +205,20 @@ async function capture(call, baseUrl, key, needles) {
   try {
     response = await fetch(`${baseUrl}${target}`, {
       headers: { 'X-Api-Key': key, Accept: 'application/json' },
+      // Never follow a redirect: fetch would resend X-Api-Key to the Location host (undici keeps
+      // custom headers across origins), possibly over plain http. 'manual' hands back the 3xx
+      // itself — nothing is sent to the Location — so it can be reported below.
+      redirect: 'manual',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      fail(
+        `HTTP ${response.status} redirect for ${target} to ${describeLocation(response, needles)}; ` +
+          'redirects are not followed, so the API key is never sent to another URL. ' +
+          'Point --base-url at the final URL instead.'
+      );
+    }
     text = await response.text();
   } catch (error) {
     fail(`request failed for ${target}: ${mask(String(error?.cause ?? error), needles)}`);
@@ -243,13 +272,39 @@ function trimAssets(body) {
   }
   return {
     body: kept,
+    originalCount: body.length,
+    keptCount: kept.length,
     note: `first ${TRIM_KEEP_FIRST} entries plus one entry per additional distinct shape (keys, asset_type, external_ids sources, blockchain count/keys)`,
   };
 }
 
+// A top-level array keeps its first TRIM_KEEP_FIRST entries. An object (e.g. the bulk response,
+// `{ data: [...] }`) keeps its first TRIM_KEEP_FIRST entries of each top-level array property,
+// with every other property as returned. Anything else is returned as undefined: not trimmable.
 function trimArray(body) {
-  if (!Array.isArray(body)) return undefined; // not trimmable: keep in full
-  return { body: body.slice(0, TRIM_KEEP_FIRST), note: `first ${TRIM_KEEP_FIRST} entries` };
+  if (Array.isArray(body)) {
+    const kept = body.slice(0, TRIM_KEEP_FIRST);
+    return {
+      body: kept,
+      originalCount: body.length,
+      keptCount: kept.length,
+      note: `first ${TRIM_KEEP_FIRST} entries`,
+    };
+  }
+  if (body === null || typeof body !== 'object') return undefined;
+  const fields = Object.keys(body).filter(
+    (field) => Array.isArray(body[field]) && body[field].length > TRIM_KEEP_FIRST
+  );
+  if (fields.length === 0) return undefined;
+  const kept = { ...body };
+  for (const field of fields) kept[field] = body[field].slice(0, TRIM_KEEP_FIRST);
+  const count = (object) => fields.reduce((sum, field) => sum + object[field].length, 0);
+  return {
+    body: kept,
+    originalCount: count(body),
+    keptCount: count(kept),
+    note: `first ${TRIM_KEEP_FIRST} entries of ${fields.map((field) => `\`${field}\``).join(', ')}`,
+  };
 }
 
 async function main() {
@@ -285,18 +340,28 @@ async function main() {
     const fullBytes = Buffer.byteLength(serialize(body));
     if (fullBytes > MAX_FIXTURE_BYTES) {
       const result = (call.trim ?? trimArray)(body);
-      if (result) {
-        data = result.body;
-        trimmed = {
-          originalCount: body.length,
-          keptCount: data.length,
-          originalBytes: fullBytes,
-          policy: result.note,
-        };
+      if (!result) {
+        fail(
+          `the response for ${describe(call)} is ${fullBytes} bytes (over ${MAX_FIXTURE_BYTES}) ` +
+            'and has no array to trim; narrow the call or extend the trim policy.'
+        );
       }
+      data = result.body;
+      trimmed = {
+        originalCount: result.originalCount,
+        keptCount: result.keptCount,
+        originalBytes: fullBytes,
+        policy: result.note,
+      };
     }
     const file = `${call.name}.json`;
     const contents = serialize(data);
+    if (Buffer.byteLength(contents) > MAX_FIXTURE_BYTES) {
+      fail(
+        `the response for ${describe(call)} is still ${Buffer.byteLength(contents)} bytes after ` +
+          `trimming (over ${MAX_FIXTURE_BYTES}); narrow the call or tighten the trim policy.`
+      );
+    }
     files.set(file, contents);
     fixtures.push({
       name: call.name,
@@ -320,7 +385,7 @@ async function main() {
     capturedAt,
     clientVersion,
     baseUrl,
-    sizePolicy: `a fixture over ${MAX_FIXTURE_BYTES} bytes is trimmed to a representative subset (recorded in its \`trimmed\` field)`,
+    sizePolicy: `a fixture over ${MAX_FIXTURE_BYTES} bytes is trimmed to a representative subset (recorded in its \`trimmed\` field); a response that cannot be trimmed below that aborts the run`,
     fixtures,
   };
   files.set('manifest.json', serialize(manifest));

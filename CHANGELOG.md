@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.26.3
+
+- Security (tooling): `scripts/record-fixtures.mjs` no longer follows redirects. It used fetch's
+  default `redirect: 'follow'`, and Node's fetch keeps custom headers across origins, so a 3xx from
+  the target resent the `X-Api-Key` header to the redirect host, even over plain http. That broke
+  the script's guarantee that the key is never sent unencrypted to a remote host (only the initial
+  URL was checked). Requests now use `redirect: 'manual'`, and any 3xx aborts the run with nothing
+  written. The error gives the status and the target's origin and path, with the key masked.
+- Tooling: the fixture size policy now covers the object-shaped responses the script records.
+  An object over 2 MB (e.g. a bulk `{ data: [...] }` response) keeps the first 200 entries of each
+  top-level array property, where before it was written in full. A response that has no array to
+  trim, or is still over 2 MB after trimming, aborts the run. Not published; no change to the
+  package.
+
 ## 0.26.2
 
 - Added a generated API reference built with TypeDoc (`pnpm run docs`, output in the untracked
