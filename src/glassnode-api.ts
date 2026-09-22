@@ -33,6 +33,35 @@ function redactApiKey(url: string): string {
   return url.replace(/([?&]api_key=)[^&]+/gi, '$1***');
 }
 
+/** `name`s of the abort rejections fetch produces: `AbortSignal.timeout()` and a plain abort. */
+const ABORT_NAMES = new Set(['TimeoutError', 'AbortError']);
+
+/**
+ * Classify a fetch rejection by its *shape*, not `instanceof Error`: a DOMException from another
+ * realm, a polyfill or a custom fetch may reject with a non-Error object that still has a `name`.
+ * Returns undefined when the rejection is neither an Error nor a TimeoutError/AbortError-named
+ * object (e.g. a string) — that case stays "Unknown error occurred" and is not retried.
+ */
+function describeTransportFailure(
+  error: unknown
+): { message: string; timedOut: boolean } | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const { name, message } = error as { name?: unknown; message?: unknown };
+  const isAbort = typeof name === 'string' && ABORT_NAMES.has(name);
+  if (!(error instanceof Error) && !isAbort) return undefined;
+  return {
+    // AbortSignal.timeout() rejects with a DOMException named 'TimeoutError'.
+    timedOut: name === 'TimeoutError',
+    // A real Error keeps its message verbatim (as before); a bare object falls back to its name.
+    message:
+      error instanceof Error
+        ? error.message
+        : typeof message === 'string' && message
+          ? message
+          : String(name),
+  };
+}
+
 /** Summarise Zod issues as `path: message` pairs (first few only) for an error message. */
 function summarizeIssues(error: ZodError, max = 3): string {
   const parts = error.issues
@@ -207,17 +236,16 @@ export class GlassnodeAPI {
       } catch (error) {
         // Network/transport failure (including a timeout abort) — retryable.
         retryAfterMs = undefined;
-        if (error instanceof Error) {
-          // AbortSignal.timeout() rejects with a DOMException named 'TimeoutError'. Checked by
-          // name (not `instanceof DOMException`) so custom fetch implementations are covered too.
-          lastError = new GlassnodeNetworkError(`Glassnode API error: ${error.message}`, {
-            cause: error,
-            timedOut: error.name === 'TimeoutError',
-          });
+        const failure = describeTransportFailure(error);
+        if (failure) {
+          lastError = new GlassnodeNetworkError(
+            `Glassnode API error: ${redactApiKey(failure.message)}`,
+            { cause: error, timedOut: failure.timedOut }
+          );
           if (attempt < this.maxRetries) continue;
           throw lastError;
         }
-        // A non-Error rejection (e.g. a string) from a custom fetch — not retried, as before.
+        // Not recognisably an error (e.g. a string) from a custom fetch — not retried, as before.
         throw new GlassnodeNetworkError('Unknown error occurred', {
           cause: error,
           timedOut: false,

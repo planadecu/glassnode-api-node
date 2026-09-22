@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.14.3
+
+- **Fix:** transport failures are classified by the rejection's shape, not `instanceof Error`. A
+  `fetch` rejection that is not an `Error` but is named `TimeoutError` (e.g. a DOMException from
+  another realm, a polyfill, or a custom `fetch` rejecting with a plain object) is now a
+  `GlassnodeNetworkError` with `timedOut: true` and is retried like any other network error;
+  one named `AbortError` is retried with `timedOut: false`. Previously both became
+  `'Unknown error occurred'` (`timedOut: false`) and were not retried. Other non-`Error`
+  rejections (strings, objects without such a `name`) are unchanged: `'Unknown error occurred'`,
+  not retried. `Error` rejections keep their message verbatim. The error message now has any
+  `api_key=` query value redacted; the original rejection stays on `.cause`.
+- CI: the `compat-node18` job now also runs `scripts/smoke-timeout.mjs` (plain Node, no test
+  framework) against the built CJS entry, proving a real `AbortSignal.timeout()` abort surfaces as
+  `GlassnodeNetworkError` with `timedOut === true` on Node 18. The script is not published.
+
 ## 0.14.2
 
 - CI now type-checks the `examples/` scripts against `src/` (`tsconfig.examples.json`, run via

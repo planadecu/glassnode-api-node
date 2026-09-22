@@ -232,3 +232,108 @@ describe('config errors', () => {
     expect(() => new GlassnodeAPI({ apiKey: API_KEY, timeout: -1 })).toThrow(GlassnodeConfigError);
   });
 });
+
+// Classification is by the rejection's *shape* (its `name`), not `instanceof Error`: a DOMException
+// from another realm, a polyfill or a custom fetch may reject with something that is not an Error.
+describe('transport rejection classification', () => {
+  it('a non-Error object named TimeoutError -> timedOut=true, message and cause kept', async () => {
+    const cause = { name: 'TimeoutError', message: 'The operation timed out' };
+    const err = await caught(
+      api(vi.fn().mockRejectedValue(cause), { timeout: 10 }).getMetricList()
+    );
+    expect(err).toBeInstanceOf(GlassnodeNetworkError);
+    const e = err as GlassnodeNetworkError;
+    expect(e.timedOut).toBe(true);
+    expect(e.cause).toBe(cause);
+    expect(e.message).toBe('Glassnode API error: The operation timed out');
+  });
+
+  it('a non-Error TimeoutError without a message falls back to its name', async () => {
+    const err = await caught(
+      api(vi.fn().mockRejectedValue({ name: 'TimeoutError' })).getMetricList()
+    );
+    expect((err as GlassnodeNetworkError).timedOut).toBe(true);
+    expect((err as GlassnodeNetworkError).message).toBe('Glassnode API error: TimeoutError');
+  });
+
+  it('a non-Error TimeoutError is retried like other network errors', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockRejectedValueOnce({ name: 'TimeoutError', message: 'timed out' })
+      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue(mockMetricListResponse) });
+    const result = await api(fetchFn, { maxRetries: 1, retryDelay: 1 }).getMetricList();
+    expect(result).toEqual(mockMetricListResponse);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('a persistent non-Error TimeoutError exhausts retries and ends timedOut=true', async () => {
+    const fetchFn = vi.fn().mockRejectedValue({ name: 'TimeoutError' });
+    const err = await caught(api(fetchFn, { maxRetries: 2, retryDelay: 1 }).getMetricList());
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+    expect(err).toBeInstanceOf(GlassnodeNetworkError);
+    expect((err as GlassnodeNetworkError).timedOut).toBe(true);
+  });
+
+  it('a non-Error object named AbortError -> retried network error, timedOut=false', async () => {
+    const cause = { name: 'AbortError', message: 'aborted' };
+    const fetchFn = vi.fn().mockRejectedValue(cause);
+    const err = await caught(api(fetchFn, { maxRetries: 1, retryDelay: 1 }).getMetricList());
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(err).toBeInstanceOf(GlassnodeNetworkError);
+    const e = err as GlassnodeNetworkError;
+    expect(e.timedOut).toBe(false);
+    expect(e.cause).toBe(cause);
+    expect(e.message).toBe('Glassnode API error: aborted');
+  });
+
+  it('a DOMException TimeoutError is retried and ends timedOut=true', async () => {
+    const cause = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    const fetchFn = vi.fn().mockRejectedValue(cause);
+    const err = await caught(
+      api(fetchFn, { maxRetries: 1, retryDelay: 1, timeout: 10 }).getMetricList()
+    );
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect((err as GlassnodeNetworkError).timedOut).toBe(true);
+    expect((err as GlassnodeNetworkError).cause).toBe(cause);
+  });
+
+  it('a real AbortSignal.timeout() firing is retried with a fresh signal per attempt', async () => {
+    const signals: AbortSignal[] = [];
+    const fetchFn = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          signals.push(init!.signal!);
+          init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason));
+        })
+    );
+    const err = await caught(
+      api(fetchFn, { timeout: 5, maxRetries: 1, retryDelay: 1 }).getMetricList()
+    );
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(signals[0]).not.toBe(signals[1]);
+    expect(err).toBeInstanceOf(GlassnodeNetworkError);
+    expect((err as GlassnodeNetworkError).timedOut).toBe(true);
+  });
+
+  it('a non-Error rejection that is not shaped like an error stays "Unknown", not retried', async () => {
+    for (const cause of ['boom', { code: 'ECONNRESET' }, null, undefined, 42]) {
+      const fetchFn = vi.fn().mockRejectedValue(cause);
+      const err = await caught(api(fetchFn, { maxRetries: 2, retryDelay: 1 }).getMetricList());
+      expect(err).toBeInstanceOf(GlassnodeNetworkError);
+      const e = err as GlassnodeNetworkError;
+      expect(e.message).toBe('Unknown error occurred');
+      expect(e.timedOut).toBe(false);
+      expect(e.cause).toBe(cause);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('never puts the API key in the error message', async () => {
+    const leaky = `request to https://api.glassnode.com/v1/x?api_key=${API_KEY}&a=BTC failed`;
+    for (const cause of [new TypeError(leaky), { name: 'TimeoutError', message: leaky }]) {
+      const err = await caught(api(vi.fn().mockRejectedValue(cause)).getMetricList());
+      expect((err as Error).message).not.toContain(API_KEY);
+      expect((err as Error).message).toContain('api_key=***');
+    }
+  });
+});

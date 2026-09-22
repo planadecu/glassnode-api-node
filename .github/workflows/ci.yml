@@ -48,7 +48,8 @@ jobs:
       - run: pnpm dlx @arethetypeswrong/cli --pack .
 
   # Prove the package's advertised floor (engines: ">=18"). Vitest 5 needs Node >=22.12, so this
-  # job does not run the suite — it builds and smoke-imports the CJS entry on Node 18.
+  # job does not run the suite — it builds, smoke-imports the CJS entry and runs a plain-Node
+  # runtime smoke (a real AbortSignal.timeout() abort -> GlassnodeNetworkError timedOut) on Node 18.
   compat-node18:
     runs-on: ubuntu-latest
     steps:
@@ -65,3 +66,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - run: node -e "const m = require('./dist/index.js'); if (typeof m.GlassnodeAPI !== 'function') throw new Error('CJS entry did not export GlassnodeAPI'); console.log('CJS require smoke ok on', process.version);"
+      - run: node scripts/smoke-timeout.mjs
