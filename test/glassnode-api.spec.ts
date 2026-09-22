@@ -138,6 +138,155 @@ describe('GlassnodeAPI', () => {
     });
   });
 
+  describe('apiKeyLocation', () => {
+    const okFetch = () =>
+      createMockFetch({ ok: true, json: vi.fn().mockResolvedValue(mockMetricListResponse) });
+
+    it('defaults to the api_key query parameter, with no fetch init (unchanged)', async () => {
+      const fetchFn = okFetch();
+      await createApi(fetchFn).getMetricList();
+
+      expect(fetchFn).toHaveBeenCalledWith(
+        `${DEFAULT_API_URL}${METRICS_METADATA_ENDPOINT}?api_key=${API_KEY}`
+      );
+      expect(fetchFn.mock.calls[0]).toHaveLength(1);
+    });
+
+    it("'query' is the same as the default", async () => {
+      const fetchFn = okFetch();
+      const api = new GlassnodeAPI({ apiKey: API_KEY, fetch: fetchFn, apiKeyLocation: 'query' });
+      await api.getMetricList();
+
+      expect(fetchFn).toHaveBeenCalledWith(
+        `${DEFAULT_API_URL}${METRICS_METADATA_ENDPOINT}?api_key=${API_KEY}`
+      );
+      expect(fetchFn.mock.calls[0]).toHaveLength(1);
+    });
+
+    it("'header' sends X-Api-Key and keeps the key out of the URL", async () => {
+      const fetchFn = okFetch();
+      const api = new GlassnodeAPI({ apiKey: API_KEY, fetch: fetchFn, apiKeyLocation: 'header' });
+      await api.getMetricList();
+
+      const [url, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(`${DEFAULT_API_URL}${METRICS_METADATA_ENDPOINT}?`);
+      expect(url).not.toContain(API_KEY);
+      expect(init).toEqual({ headers: { 'X-Api-Key': API_KEY } });
+    });
+
+    it("'header' keeps other query params in the URL", async () => {
+      const fetchFn = createMockFetch({ ok: true, json: vi.fn().mockResolvedValue([]) });
+      const api = new GlassnodeAPI({ apiKey: API_KEY, fetch: fetchFn, apiKeyLocation: 'header' });
+      await api.callMetric('/market/price_usd_close', { a: 'BTC' });
+
+      expect(fetchFn.mock.calls[0][0]).toBe(
+        `${DEFAULT_API_URL}${METRICS_ENDPOINT}/market/price_usd_close?a=BTC&f=json`
+      );
+    });
+
+    it("'header' merges the header with the timeout signal", async () => {
+      const fetchFn = okFetch();
+      const api = new GlassnodeAPI({
+        apiKey: API_KEY,
+        fetch: fetchFn,
+        apiKeyLocation: 'header',
+        timeout: 5000,
+      });
+      await api.getMetricList();
+
+      const init = fetchFn.mock.calls[0][1] as RequestInit;
+      expect(init.headers).toEqual({ 'X-Api-Key': API_KEY });
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it("'header' sends a fresh init on every retry attempt", async () => {
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' })
+        .mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue(mockMetricListResponse) });
+      const api = new GlassnodeAPI({
+        apiKey: API_KEY,
+        fetch: fetchFn,
+        apiKeyLocation: 'header',
+        maxRetries: 1,
+        retryDelay: 1,
+      });
+      await api.getMetricList();
+
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+      for (const [, init] of fetchFn.mock.calls as [string, RequestInit][]) {
+        expect(init.headers).toEqual({ 'X-Api-Key': API_KEY });
+      }
+    });
+
+    it("'header' with no key (x402) sends no header and no init", async () => {
+      const fetchFn = okFetch();
+      const api = new GlassnodeAPI({ x402: true, fetch: fetchFn, apiKeyLocation: 'header' });
+      await api.getMetricList();
+
+      expect(fetchFn).toHaveBeenCalledWith(
+        `https://x402.glassnode.com${METRICS_METADATA_ENDPOINT}?`
+      );
+      expect(fetchFn.mock.calls[0]).toHaveLength(1);
+    });
+
+    it("'header' with no key and a timeout passes only the signal", async () => {
+      const fetchFn = okFetch();
+      const api = new GlassnodeAPI({
+        x402: true,
+        fetch: fetchFn,
+        apiKeyLocation: 'header',
+        timeout: 5000,
+      });
+      await api.getMetricList();
+
+      const init = fetchFn.mock.calls[0][1] as RequestInit;
+      expect(init).not.toHaveProperty('headers');
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it("'header' keeps the key out of logs", async () => {
+      const logger = vi.fn();
+      const fetchFn = okFetch();
+      const api = new GlassnodeAPI({
+        apiKey: API_KEY,
+        fetch: fetchFn,
+        logger,
+        apiKeyLocation: 'header',
+      });
+      await api.getMetricList();
+
+      expect(logger).toHaveBeenCalledWith(
+        'API call:',
+        `${DEFAULT_API_URL}${METRICS_METADATA_ENDPOINT}?`
+      );
+      expect(JSON.stringify(logger.mock.calls)).not.toContain(API_KEY);
+    });
+
+    it('redacts a raw key echoed by a transport error message, in either mode', async () => {
+      for (const apiKeyLocation of ['query', 'header'] as const) {
+        const fetchFn = vi
+          .fn()
+          .mockRejectedValue(new Error(`connect failed (X-Api-Key: ${API_KEY})`));
+        const api = new GlassnodeAPI({ apiKey: API_KEY, fetch: fetchFn, apiKeyLocation });
+
+        const err = await api.getMetricList().catch((e: unknown) => e);
+        expect((err as Error).message).toBe('Glassnode API error: connect failed (X-Api-Key: ***)');
+      }
+    });
+
+    it('rejects an unknown apiKeyLocation', () => {
+      expect(
+        () =>
+          new GlassnodeAPI({
+            apiKey: API_KEY,
+            // @ts-expect-error: invalid value on purpose
+            apiKeyLocation: 'cookie',
+          })
+      ).toThrow(/apiKeyLocation/);
+    });
+  });
+
   describe('getAssetMetadata', () => {
     it('should fetch asset metadata', async () => {
       const fetchFn = createMockFetch({

@@ -55,6 +55,10 @@ Keep these separate; they answer different questions:
 The main class is `GlassnodeAPI` which takes a configuration object:
 - `apiKey` (required) - Glassnode API key
 - `apiUrl` (optional) - Base URL, defaults to `https://api.glassnode.com`
+- `apiKeyLocation` (optional) - `'query'` (default, `api_key` query param) or `'header'` (`X-Api-Key`
+  header, keeps the key out of URLs). `'header'` is server-side only: the API's CORS preflight does
+  not allow `X-Api-Key`, so browsers block it. With `'header'`, `fetchFn` gets `(url, { headers })`
+  (+ `signal` if `timeout`); with no key, no header is sent.
 - `logger` (optional) - Callback for debug logging (e.g. `console.log`)
 - `fetch` (optional) - Custom fetch function for testing or custom HTTP behavior
 - `maxRetries` (optional) - Number of retries for 429/5xx errors (default 0)

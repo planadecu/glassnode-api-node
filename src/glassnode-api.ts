@@ -161,6 +161,7 @@ function assertParams(
  */
 export class GlassnodeAPI {
   private apiKey: string | undefined;
+  private apiKeyLocation: 'query' | 'header';
   private apiUrl: string;
   private logger?: Logger;
   private fetchFn: FetchFn;
@@ -185,6 +186,7 @@ export class GlassnodeAPI {
     const validatedConfig = parsed.data;
 
     this.apiKey = validatedConfig.apiKey;
+    this.apiKeyLocation = validatedConfig.apiKeyLocation;
     this.apiUrl = validatedConfig.apiUrl ?? (validatedConfig.x402 ? X402_API_URL : DEFAULT_API_URL);
     this.logger = validatedConfig.logger as Logger | undefined;
     this.fetchFn = (validatedConfig.fetch as FetchFn) ?? globalThis.fetch;
@@ -195,18 +197,30 @@ export class GlassnodeAPI {
   }
 
   /**
+   * Mask the API key in text that may have echoed it: any `api_key=` query value, plus any raw
+   * occurrence of the configured key (e.g. a transport error quoting the `X-Api-Key` header).
+   */
+  private redact(text: string): string {
+    const masked = redactApiKey(text);
+    return this.apiKey ? masked.split(this.apiKey).join('***') : masked;
+  }
+
+  /**
    * Make an API request
    * @param endpoint API endpoint path
    * @param params Query parameters
    * @returns Promise resolving to the response data
    */
   private async request<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
+    // The key goes in the query string (default) or the X-Api-Key header — never both, and
+    // neither when there is no key (e.g. x402 mode).
+    const keyInHeader = this.apiKeyLocation === 'header' && this.apiKey !== undefined;
     const queryParams = new URLSearchParams({
       ...params,
-      ...(this.apiKey ? { api_key: this.apiKey } : {}),
+      ...(this.apiKey && !keyInHeader ? { api_key: this.apiKey } : {}),
     });
-
     const url = `${this.apiUrl}${endpoint}?${queryParams}`;
+    const headers = keyInHeader ? { 'X-Api-Key': this.apiKey as string } : undefined;
     let lastError: GlassnodeError | undefined;
     // Server-requested wait (from a Retry-After header) to use for the *next* attempt, if any.
     let retryAfterMs: number | undefined;
@@ -223,12 +237,15 @@ export class GlassnodeAPI {
       // Transport step — the only part that is retried on failure.
       let response: Response;
       try {
-        // Abort the attempt after `timeout` ms (fresh signal per attempt). When no timeout is
-        // configured, keep the single-argument call so a custom `fetch` sees exactly the URL.
+        // Abort the attempt after `timeout` ms (fresh signal per attempt). Pass an `init` only
+        // when there is something to put in it (the key header and/or the signal), so with the
+        // defaults a custom `fetch` still sees a single-argument call with exactly the URL.
+        const init: RequestInit = {
+          ...(headers ? { headers } : {}),
+          ...(this.timeout !== undefined ? { signal: AbortSignal.timeout(this.timeout) } : {}),
+        };
         response =
-          this.timeout !== undefined
-            ? await this.fetchFn(url, { signal: AbortSignal.timeout(this.timeout) })
-            : await this.fetchFn(url);
+          Object.keys(init).length > 0 ? await this.fetchFn(url, init) : await this.fetchFn(url);
       } catch (error) {
         // Already classified by a library-aware fetch (e.g. a GlassnodePaymentError from
         // createX402Fetch): surface it unchanged and never retry it.
@@ -238,7 +255,7 @@ export class GlassnodeAPI {
         const failure = describeTransportFailure(error);
         if (failure) {
           lastError = new GlassnodeNetworkError(
-            `Glassnode API error: ${redactApiKey(failure.message)}`,
+            `Glassnode API error: ${this.redact(failure.message)}`,
             { cause: error, timedOut: failure.timedOut }
           );
           if (attempt < this.maxRetries) continue;

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.17.0
+
+- **New:** `apiKeyLocation` config option (`'query'` | `'header'`, default `'query'`). With
+  `'header'`, the API key is sent as the `X-Api-Key` request header instead of the `api_key` query
+  parameter, so it no longer appears in request URLs (custom `fetch`, tracing, proxies, access
+  logs, transport errors that quote the URL). A custom `fetch` is then called as
+  `fetch(url, { headers: { 'X-Api-Key': key } })`, merged with `signal` when `timeout` is set; no
+  header is sent when there is no `apiKey` (e.g. `x402` mode). The fetch from `createX402Fetch()`
+  forwards the header.
+- `'header'` is opt-in, not the default, because it breaks browsers: the Glassnode API's CORS
+  preflight (`Access-Control-Allow-Headers`) does not allow `X-Api-Key`.
+- Transport error messages now also mask a raw occurrence of the configured key (not only an
+  `api_key=` query value).
+- Not observable for existing callers: with the default, URLs and the single-argument `fetch` call
+  are unchanged. Minor bump: new config option.
+
 ## 0.16.0
 
 - **New:** `GlassnodePaymentError` (extends `GlassnodeError`, exported from the package entry).

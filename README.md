@@ -94,19 +94,40 @@ const data = await api.callMetric('/market/price_usd_close', {
 
 `new GlassnodeAPI(config)`
 
-| Option          | Type                                            | Default                     | Description                                                                              |
-| --------------- | ----------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------- |
-| `apiKey`        | `string`                                        | — (required unless `x402`)  | Your Glassnode API key                                                                   |
-| `apiUrl`        | `string`                                        | `https://api.glassnode.com` | Base URL for the API                                                                     |
-| `x402`          | `boolean`                                       | `false`                     | Route through the paid x402 endpoint (see [Paid calls with x402](#paid-calls-with-x402)) |
-| `logger`        | `(message: string, ...args: unknown[]) => void` | —                           | Callback for debug logging (e.g. `console.log`)                                          |
-| `fetch`         | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (or an x402-wrapped fetch)                                   |
-| `maxRetries`    | `number`                                        | `0`                         | Retries for retryable errors (`429`, `5xx`)                                              |
-| `retryDelay`    | `number`                                        | `1000`                      | Base retry delay in ms (doubles each attempt, then full jitter)                          |
-| `maxRetryDelay` | `number`                                        | `30000`                     | Upper bound in ms for a single retry wait                                                |
-| `timeout`       | `number`                                        | — (no timeout)              | Per-request timeout in ms; each attempt aborts via `AbortSignal.timeout()`               |
+| Option           | Type                                            | Default                     | Description                                                                                           |
+| ---------------- | ----------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `apiKey`         | `string`                                        | — (required unless `x402`)  | Your Glassnode API key                                                                                |
+| `apiUrl`         | `string`                                        | `https://api.glassnode.com` | Base URL for the API                                                                                  |
+| `apiKeyLocation` | `'query' \| 'header'`                           | `'query'`                   | Send the key as the `api_key` query parameter or the `X-Api-Key` header (server-side only; see below) |
+| `x402`           | `boolean`                                       | `false`                     | Route through the paid x402 endpoint (see [Paid calls with x402](#paid-calls-with-x402))              |
+| `logger`         | `(message: string, ...args: unknown[]) => void` | —                           | Callback for debug logging (e.g. `console.log`)                                                       |
+| `fetch`          | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (or an x402-wrapped fetch)                                                |
+| `maxRetries`     | `number`                                        | `0`                         | Retries for retryable errors (`429`, `5xx`)                                                           |
+| `retryDelay`     | `number`                                        | `1000`                      | Base retry delay in ms (doubles each attempt, then full jitter)                                       |
+| `maxRetryDelay`  | `number`                                        | `30000`                     | Upper bound in ms for a single retry wait                                                             |
+| `timeout`        | `number`                                        | — (no timeout)              | Per-request timeout in ms; each attempt aborts via `AbortSignal.timeout()`                            |
 
 The config is validated at construction time — an invalid config (e.g. an empty `apiKey`) throws a `GlassnodeConfigError` immediately. When `x402` is enabled, `apiKey` is optional but a payment-capable `fetch` is required. Failed requests throw a `GlassnodeApiError` whose message includes the server's error detail (also on `.detail`).
+
+### Keeping the API key out of URLs
+
+By default the key is sent as the `api_key` query parameter, so it is part of every request URL —
+visible to a custom `fetch`, tracing/instrumentation, proxies and access logs, and to any transport
+error that quotes the URL. (The client's own `logger` output and error messages always mask it.)
+On a server, set `apiKeyLocation: 'header'` to send it as the `X-Api-Key` header instead; the URL
+then carries no key at all:
+
+```typescript
+const api = new GlassnodeAPI({ apiKey: process.env.GLASSNODE_API_KEY, apiKeyLocation: 'header' });
+```
+
+With `'header'`, a custom `fetch` is called as `fetch(url, { headers: { 'X-Api-Key': key } })`
+(plus `signal` when `timeout` is set) and must forward `init.headers` — the fetch returned by
+`createX402Fetch()` does. No header is sent when there is no `apiKey` (e.g. `x402` mode).
+
+`'header'` does **not** work in browsers: a custom header triggers a CORS preflight, and the
+Glassnode API's `Access-Control-Allow-Headers` does not list `X-Api-Key`, so the browser blocks the
+request. That is why `'query'` stays the default.
 
 ## Methods
 
@@ -322,6 +343,8 @@ without a build step.
 
 > Your API key is exposed to end users in browser code. Only ship it in trusted,
 > first-party contexts — otherwise proxy Glassnode requests through your own backend.
+> Keep the default `apiKeyLocation: 'query'` in the browser (see
+> [Keeping the API key out of URLs](#keeping-the-api-key-out-of-urls)).
 
 ## Examples
 

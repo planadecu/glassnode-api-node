@@ -24,6 +24,14 @@ export const GlassnodeConfigSchema = z
     /** API key for authentication. Required unless `x402` is enabled. */
     apiKey: z.string().min(1, 'API key is required').optional(),
 
+    /**
+     * Where the API key is sent: `'query'` (default) as the `api_key` query parameter, or
+     * `'header'` as the `X-Api-Key` request header, which keeps the key out of URLs (and so out
+     * of access logs, proxies, tracing and transport errors). `'header'` is for server-side use:
+     * the Glassnode API's CORS preflight does not allow `X-Api-Key`, so browsers block it.
+     */
+    apiKeyLocation: z.enum(['query', 'header']).default('query'),
+
     /** Base URL for the Glassnode API. An explicit value always wins over the `x402` preset. */
     apiUrl: z.string().url().optional(),
 
