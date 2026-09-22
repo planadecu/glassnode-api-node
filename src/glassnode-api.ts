@@ -2,7 +2,7 @@ import {
   GlassnodeConfig,
   GlassnodeConfigSchema,
   Logger,
-  FetchFn,
+  GlassnodeFetch,
   DEFAULT_API_URL,
   X402_API_URL,
 } from './types/config.js';
@@ -499,7 +499,7 @@ export class GlassnodeAPI {
   private apiUrl: string;
   private logger?: Logger;
   private hooks?: GlassnodeHooks;
-  private fetchFn: FetchFn;
+  private fetchFn: GlassnodeFetch;
   private maxRetries: number;
   private retryDelay: number;
   private maxRetryDelay: number;

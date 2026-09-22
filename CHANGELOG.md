@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.26.0
+
+- Types: the `fetch` config option is now typed as the new exported `GlassnodeFetch`
+  (`(input: string, init?: RequestInit) => Promise<Response>`) — the call the client actually makes
+  (`fetch(url)` / `fetch(url, init)` with a string URL) — instead of `typeof fetch`. This relaxes
+  0.25.0's compile-time change: string-only custom fetches and mocks
+  (`async (url: string, init?: RequestInit) => …`) type-check again, without a cast. Everything
+  accepted before still is (`globalThis.fetch`, `vi.fn()`, `vi.fn<typeof fetch>()`, the fetch from
+  `createX402Fetch()`, a `(input: RequestInfo | URL, init?) => Promise<Response>` fetch). An inline
+  `fetch: async (input, init) => …` now gets `input: string`. A fetch that does not resolve to a
+  `Response` is still rejected. No runtime change: validation and function identity are unchanged.
+- Deprecated: `FetchFn`. It still means `typeof fetch` (and a `FetchFn` value is still accepted as
+  the option), but it is no longer the option's type; use `GlassnodeFetch`.
+
 ## 0.25.1
 
 - Docs: `examples/.env.example` now lists every example that uses `GLASSNODE_API_KEY` (adds

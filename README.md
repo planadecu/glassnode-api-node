@@ -114,7 +114,7 @@ const data = await api.callMetric('/market/price_usd_close', {
 | `x402`           | `boolean`                                       | `false`                     | Route through the paid x402 endpoint (see [Paid calls with x402](#paid-calls-with-x402))                      |
 | `logger`         | `(message: string, ...args: unknown[]) => void` | —                           | Callback for debug logging (e.g. `console.log`); its failures are ignored                                     |
 | `hooks`          | `GlassnodeHooks`                                | —                           | Structured `onRequest` / `onResponse` / `onRetry` / `onError` callbacks (see [Observability](#observability)) |
-| `fetch`          | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (or an x402-wrapped fetch); required with `x402`                                  |
+| `fetch`          | `GlassnodeFetch`                                | `globalThis.fetch`          | Custom fetch implementation (or an x402-wrapped fetch); required with `x402`                                  |
 | `maxRetries`     | `number`                                        | `0`                         | Retries for retryable failures (`429`, `5xx`, network errors, timeouts); a non-negative integer               |
 | `retryDelay`     | `number`                                        | `1000`                      | Base retry delay in ms (doubles each attempt, then full jitter)                                               |
 | `maxRetryDelay`  | `number`                                        | `30000`                     | Upper bound in ms for a single retry wait (also caps a `Retry-After`)                                         |
@@ -126,6 +126,11 @@ immediately (e.g. an empty `apiKey`, a non-URL `apiUrl`, a misspelled hook name,
 largest timer delay). When `x402` is enabled, `apiKey` is optional but a payment-capable `fetch` is
 required. A non-2xx response rejects with a `GlassnodeApiError` whose message includes the server's
 error detail (also on `.detail`); see [Error Handling](#error-handling) for every failure type.
+
+`GlassnodeFetch` is `(input: string, init?: RequestInit) => Promise<Response>`: the client only
+calls a custom `fetch` with a string URL, as `fetch(url)` or `fetch(url, init)`. So
+`globalThis.fetch`, `vi.fn()` mocks, the fetch from `createX402Fetch()` and string-only custom
+fetches (`async (url: string, init?: RequestInit) => …`) all type-check.
 
 ### Keeping the API key out of URLs
 

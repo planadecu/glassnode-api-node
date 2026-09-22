@@ -5,6 +5,7 @@ import {
   X402_API_URL,
   type FetchFn,
   type GlassnodeConfig,
+  type GlassnodeFetch,
   type Logger,
 } from '../src/types/config';
 import type { createX402Fetch } from '../src/x402';
@@ -77,10 +78,15 @@ describe('GlassnodeConfigSchema', () => {
 describe('logger and fetch options', () => {
   const ok = () => new Response('[]', { status: 200 });
 
-  it('types logger as Logger and fetch as FetchFn (typeof fetch)', () => {
+  it('types logger as Logger and fetch as GlassnodeFetch (the call the client makes)', () => {
     expectTypeOf<GlassnodeConfig['logger']>().toEqualTypeOf<Logger | undefined>();
-    expectTypeOf<GlassnodeConfig['fetch']>().toEqualTypeOf<FetchFn | undefined>();
+    expectTypeOf<GlassnodeConfig['fetch']>().toEqualTypeOf<GlassnodeFetch | undefined>();
+    expectTypeOf<GlassnodeFetch>().toEqualTypeOf<
+      (input: string, init?: RequestInit) => Promise<Response>
+    >();
+    // The deprecated `FetchFn` keeps its meaning (`typeof fetch`) and still fits the option.
     expectTypeOf<FetchFn>().toEqualTypeOf<typeof fetch>();
+    expectTypeOf<FetchFn>().toExtend<GlassnodeFetch>();
   });
 
   it('contextually types inline logger and fetch callbacks', () => {
@@ -92,7 +98,7 @@ describe('logger and fetch options', () => {
         expectTypeOf(args).toEqualTypeOf<unknown[]>();
       },
       fetch: async (input, init) => {
-        expectTypeOf(input).toEqualTypeOf<Parameters<typeof fetch>[0]>();
+        expectTypeOf(input).toEqualTypeOf<string>();
         expectTypeOf(init).toEqualTypeOf<RequestInit | undefined>();
         return ok();
       },
@@ -101,7 +107,11 @@ describe('logger and fetch options', () => {
   });
 
   it('accepts common logger and fetch implementations', () => {
-    type X402Fetch = Awaited<ReturnType<typeof createX402Fetch>>;
+    const stringOnly = async (url: string, init?: RequestInit): Promise<Response> => (
+      void url,
+      void init,
+      ok()
+    );
     const undiciLike = async (
       input: string | URL | Request,
       init?: RequestInit
@@ -109,16 +119,33 @@ describe('logger and fetch options', () => {
     const configs: GlassnodeConfig[] = [
       { apiKey: 'k', logger: console.log, fetch: globalThis.fetch },
       { apiKey: 'k', logger: console.error, fetch: vi.fn() },
-      { apiKey: 'k', logger: vi.fn(), fetch: vi.fn<FetchFn>().mockResolvedValue(ok()) },
+      { apiKey: 'k', logger: vi.fn(), fetch: vi.fn<typeof fetch>().mockResolvedValue(ok()) },
       { apiKey: 'k', logger: () => {}, fetch: undiciLike },
+      // A string-only custom fetch or mock: the client only ever calls `fetch(url[, init])`.
+      { apiKey: 'k', fetch: stringOnly },
+      { apiKey: 'k', fetch: async (url: string) => (void url, ok()) },
+      { apiKey: 'k', fetch: vi.fn((url: string) => (void url, Promise.resolve(ok()))) },
       {
         apiKey: 'k',
         logger: (m: string) => void m,
         fetch: async (url: unknown) => (void url, ok()),
       },
-      { x402: true, fetch: undefined as unknown as X402Fetch },
     ];
-    expect(configs).toHaveLength(6);
+    expect(configs).toHaveLength(8);
+    for (const config of configs) expect(() => new GlassnodeAPI(config)).not.toThrow();
+  });
+
+  it('accepts the fetch returned by createX402Fetch() as the fetch option', () => {
+    // A value of exactly the type `createX402Fetch()` resolves to, passed as the option (checked
+    // by the compiler; the x402 runtime path is covered in x402.spec.ts).
+    const paidConfig = (
+      paidFetch: Awaited<ReturnType<typeof createX402Fetch>>
+    ): GlassnodeConfig => ({
+      x402: true,
+      fetch: paidFetch,
+    });
+    const config = paidConfig(async () => ok());
+    expect(() => new GlassnodeAPI(config)).not.toThrow();
   });
 
   it('rejects mistyped logger and fetch at compile time', () => {
@@ -131,12 +158,12 @@ describe('logger and fetch options', () => {
       { apiKey: 'k', logger: (m: number) => void m },
       // @ts-expect-error -- fetch must resolve to a Response
       { apiKey: 'k', fetch: async () => 'body' },
-      // A fetch must accept every `fetch` input (`RequestInfo | URL`), not only a string: declare the
-      // parameter as `Parameters<typeof fetch>[0]` (or `unknown`), or cast to `typeof fetch`.
-      // @ts-expect-error -- narrower input than `typeof fetch`
-      { apiKey: 'k', fetch: async (url: string) => (void url, ok()) },
+      // @ts-expect-error -- fetch must return a Promise, not a bare Response
+      { apiKey: 'k', fetch: (url: string) => (void url, ok()) },
+      // @ts-expect-error -- the client passes a string URL, not a number
+      { apiKey: 'k', fetch: async (url: number) => (void url, ok()) },
     ];
-    expect(bad).toHaveLength(5);
+    expect(bad).toHaveLength(6);
   });
 
   it.each(['logger', 'fetch'] as const)(
@@ -156,7 +183,7 @@ describe('logger and fetch options', () => {
 
   it('keeps logger and fetch as given (not wrapped) when parsing', () => {
     const logger: Logger = () => {};
-    const fetchFn: FetchFn = async () => ok();
+    const fetchFn: GlassnodeFetch = async () => ok();
     const parsed = GlassnodeConfigSchema.parse({ apiKey: 'k', logger, fetch: fetchFn });
     expect(parsed.logger).toBe(logger);
     expect(parsed.fetch).toBe(fetchFn);
@@ -168,7 +195,7 @@ describe('logger and fetch options', () => {
     const logger: Logger = () => {
       calls.push('logger');
     };
-    const fetchFn: FetchFn = async () => {
+    const fetchFn: GlassnodeFetch = async () => {
       calls.push('fetch');
       return new Response(JSON.stringify(mockMetricListResponse), { status: 200 });
     };

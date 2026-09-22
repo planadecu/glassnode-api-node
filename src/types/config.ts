@@ -8,9 +8,22 @@ import type { GlassnodeHooks } from './hooks.js';
 export type Logger = (message: string, ...args: unknown[]) => void;
 
 /**
- * Fetch function type matching the standard fetch API
+ * The standard `fetch` type (`typeof fetch`).
+ *
+ * @deprecated The `fetch` config option is typed as {@link GlassnodeFetch}, the call the client
+ * actually makes, which also accepts string-only custom fetches. `FetchFn` still means
+ * `typeof fetch` (and a `FetchFn` value is still accepted as the option); use `GlassnodeFetch` to
+ * type a custom fetch for the client.
  */
 export type FetchFn = typeof fetch;
+
+/**
+ * Type of the `fetch` config option: the call the client makes. It is only ever called with a
+ * string URL, as `fetch(url)` or `fetch(url, init)`, and must resolve to a standard `Response`.
+ * `globalThis.fetch`, `vi.fn()` mocks, the fetch from `createX402Fetch()` and string-only custom
+ * fetches (`(url: string, init?: RequestInit) => Promise<Response>`) all fit.
+ */
+export type GlassnodeFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 /** Default free Glassnode API base URL. */
 export const DEFAULT_API_URL = 'https://api.glassnode.com';
@@ -87,8 +100,11 @@ export const GlassnodeConfigSchema = z
      */
     hooks: HooksSchema.optional(),
 
-    /** Optional custom fetch function (e.g. an x402-wrapped fetch, or for testing). */
-    fetch: fn<FetchFn>().optional(),
+    /**
+     * Optional custom fetch function (e.g. an x402-wrapped fetch, or for testing). Called with a
+     * string URL as `fetch(url)` or `fetch(url, init)`; see {@link GlassnodeFetch}.
+     */
+    fetch: fn<GlassnodeFetch>().optional(),
 
     /**
      * Maximum number of retries for retryable failures: a `429`/`5xx` response, or a transport
