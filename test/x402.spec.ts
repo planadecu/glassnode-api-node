@@ -1,4 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import * as vm from 'node:vm';
+import { x402Client, x402HTTPClient } from '@x402/fetch';
 import { usdcDecimalToAtomic, createMaxAmountPolicy, createX402Fetch } from '../src/x402';
 import { GlassnodeAPI } from '../src/glassnode-api';
 import {
@@ -9,6 +11,28 @@ import {
   GlassnodeNetworkError,
   GlassnodePaymentError,
 } from '../src/errors';
+
+/**
+ * `@x402/fetch` is the real library everywhere, except in tests that set `x402Stub.wrap`: then
+ * `wrapFetchWithPayment` is replaced by that stand-in. The real library always hands the base
+ * fetch one same-realm `Request` (no `init`), so the `init.headers` and cross-realm branches of
+ * the payment detection are only reachable through a stand-in that forwards other shapes — the
+ * detection itself is still exercised end to end through the public `createX402Fetch` wrapper.
+ */
+const x402Stub = vi.hoisted(() => ({
+  wrap: undefined as undefined | ((base: typeof fetch) => typeof fetch),
+}));
+vi.mock('@x402/fetch', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@x402/fetch')>();
+  return {
+    ...actual,
+    wrapFetchWithPayment: (...args: Parameters<typeof actual.wrapFetchWithPayment>) =>
+      x402Stub.wrap ? x402Stub.wrap(args[0] as typeof fetch) : actual.wrapFetchWithPayment(...args),
+  };
+});
+afterEach(() => {
+  x402Stub.wrap = undefined;
+});
 
 async function caught(p: Promise<unknown>): Promise<unknown> {
   try {
@@ -690,4 +714,373 @@ describe('createX402Fetch — per-call signal', () => {
     expect(signTypedData).toHaveBeenCalledTimes(1);
     expect(baseFetch).toHaveBeenCalledTimes(2);
   });
+});
+
+const METRICS_URL = 'https://x402.glassnode.com/v1/metadata/metrics';
+
+/**
+ * Route every base-fetch call straight through with the exact `(input, init)` it is given (the
+ * stand-in for `wrapFetchWithPayment`, see `x402Stub`), so a test controls the shape the
+ * payment detection sees.
+ */
+function passThroughWrapper() {
+  x402Stub.wrap = (base) => (input, init) => base(input, init);
+}
+
+/**
+ * Whether the public wrapper treats a base-fetch call as carrying a payment: a paid request's
+ * non-2xx answer rejects with `GlassnodePaymentError { paymentMayHaveSettled: true }`, while an
+ * unpaid one's is returned as a plain `Response`.
+ */
+async function detectedAsPaid(input: unknown, init?: RequestInit): Promise<boolean> {
+  passThroughWrapper();
+  const baseFetch = vi.fn(async () => new Response('', { status: 503 }));
+  try {
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(),
+      fetch: baseFetch as typeof fetch,
+    });
+    let result: boolean;
+    try {
+      const response = await paidFetch(input as RequestInfo, init);
+      expect(response.status).toBe(503);
+      result = false;
+    } catch (err) {
+      expect(err).toBeInstanceOf(GlassnodePaymentError);
+      expect((err as GlassnodePaymentError).paymentMayHaveSettled).toBe(true);
+      expect((err as GlassnodePaymentError).status).toBe(503);
+      result = true;
+    }
+    // The stand-in was in effect: the base fetch saw exactly the shape under test.
+    expect(baseFetch).toHaveBeenCalledTimes(1);
+    expect(baseFetch.mock.calls[0]).toEqual([input, init]);
+    expect((baseFetch.mock.calls[0] as unknown[])[0]).toBe(input);
+    return result;
+  } finally {
+    x402Stub.wrap = undefined;
+  }
+}
+
+describe('createX402Fetch — payment detection on init.headers', () => {
+  const NAMES = [
+    'PAYMENT-SIGNATURE',
+    'payment-signature',
+    'Payment-Signature',
+    'X-PAYMENT',
+    'x-payment',
+    'X-Payment',
+  ];
+  const FORMS: [string, (name: string) => HeadersInit][] = [
+    ['plain object', (name) => ({ [name]: 'signed', Accept: 'application/json' })],
+    ['Headers instance', (name) => new Headers({ [name]: 'signed' })],
+    [
+      'array of tuples',
+      (name) => [
+        ['Accept', 'application/json'],
+        [name, 'signed'],
+      ],
+    ],
+  ];
+
+  for (const [form, build] of FORMS) {
+    it.each(NAMES)(`detects %s as a ${form}`, async (name) => {
+      expect(await detectedAsPaid(METRICS_URL, { headers: build(name) })).toBe(true);
+    });
+
+    it(`a ${form} without a payment header is not a paid request`, async () => {
+      expect(await detectedAsPaid(METRICS_URL, { headers: build('X-Api-Key') })).toBe(false);
+    });
+  }
+
+  it('a header whose name merely contains "payment" is not a paid request', async () => {
+    const headers = { 'PAYMENT-RESPONSE': 'x', 'X-PAYMENT-RESPONSE': 'x' };
+    expect(await detectedAsPaid(METRICS_URL, { headers })).toBe(false);
+  });
+
+  it('a transport failure of a request paid via init.headers is flagged', async () => {
+    passThroughWrapper();
+    const cause = new TypeError('socket reset');
+    const baseFetch = vi.fn(async () => {
+      throw cause;
+    });
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(),
+      fetch: baseFetch as typeof fetch,
+    });
+    const err = (await caught(
+      paidFetch(METRICS_URL, { headers: [['x-payment', 'signed']] })
+    )) as GlassnodePaymentError;
+    expect(err).toBeInstanceOf(GlassnodePaymentError);
+    expect(err.paymentMayHaveSettled).toBe(true);
+    expect(err.cause).toBe(cause);
+  });
+
+  it('the real @x402/fetch moves init headers onto its Request; still detected', async () => {
+    const baseFetch = vi.fn(async () => new Response('', { status: 503 }));
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(),
+      fetch: baseFetch as typeof fetch,
+    });
+    const err = await caught(paidFetch(METRICS_URL, { headers: { 'payment-signature': 's' } }));
+    // The base fetch got a lone Request (no init) — the Request branch did the detecting.
+    expect(baseFetch.mock.calls[0]).toHaveLength(1);
+    expect(err).toBeInstanceOf(GlassnodePaymentError);
+    expect((err as GlassnodePaymentError).paymentMayHaveSettled).toBe(true);
+  });
+});
+
+describe('createX402Fetch — cross-realm Headers / Request', () => {
+  /**
+   * Objects built in a separate V8 realm (`node:vm`). Node exposes no `fetch` globals in a fresh
+   * context, so the realm defines its own spec-shaped `Headers` (iterable of `[name, value]`
+   * pairs, case-insensitive) and `Request` (`url` + `headers`) — which is exactly what the
+   * duck-typed detection must accept: none of them is an instance of this realm's classes.
+   */
+  const realm = vm.runInNewContext(`
+    class Headers {
+      constructor(init) {
+        this.map = new Map();
+        for (const [k, v] of Object.entries(init)) this.map.set(k.toLowerCase(), String(v));
+      }
+      has(name) { return this.map.has(String(name).toLowerCase()); }
+      get(name) { return this.map.get(String(name).toLowerCase()) ?? null; }
+      *[Symbol.iterator]() { yield* this.map.entries(); }
+    }
+    class Request {
+      constructor(url, headers) { this.url = url; this.headers = headers; }
+    }
+    ({
+      headers: (init) => new Headers(init),
+      plain: (init) => Object.assign({}, init),
+      tuples: (init) => Object.entries(init),
+      request: (url, headers) => new Request(url, headers),
+    })
+  `) as {
+    headers: (init: Record<string, string>) => HeadersInit;
+    plain: (init: Record<string, string>) => HeadersInit;
+    tuples: (init: Record<string, string>) => HeadersInit;
+    request: (url: string, headers: HeadersInit) => unknown;
+  };
+
+  it('the realm objects really are foreign', () => {
+    const h = realm.headers({ a: 'b' });
+    expect(h).not.toBeInstanceOf(Headers);
+    expect(h).not.toBeInstanceOf(Object);
+    expect(realm.request(METRICS_URL, h)).not.toBeInstanceOf(Request);
+    expect(realm.tuples({ a: 'b' })).not.toBeInstanceOf(Array);
+  });
+
+  const FORMS = ['headers', 'plain', 'tuples'] as const;
+
+  it.each(FORMS)('detects a payment header in a foreign-realm %s on init.headers', async (form) => {
+    const v2 = realm[form]({ 'Payment-Signature': 'signed' });
+    expect(await detectedAsPaid(METRICS_URL, { headers: v2 })).toBe(true);
+    const v1 = realm[form]({ 'x-payment': 'signed' });
+    expect(await detectedAsPaid(METRICS_URL, { headers: v1 })).toBe(true);
+    const none = realm[form]({ Accept: 'application/json' });
+    expect(await detectedAsPaid(METRICS_URL, { headers: none })).toBe(false);
+  });
+
+  it.each(FORMS)('detects a payment header on a foreign-realm Request (%s)', async (form) => {
+    const paid = realm.request(METRICS_URL, realm[form]({ 'PAYMENT-SIGNATURE': 'signed' }));
+    expect(await detectedAsPaid(paid)).toBe(true);
+    const unpaid = realm.request(METRICS_URL, realm[form]({ Accept: 'application/json' }));
+    expect(await detectedAsPaid(unpaid)).toBe(false);
+  });
+});
+
+describe('createX402Fetch — concurrent calls on one wrapped fetch', () => {
+  it("a paid call failing in transit does not taint another in-flight call's probe failure", async () => {
+    // Call A (/metrics) pays and its paid request hangs; meanwhile call B (/assets) has its
+    // unpaid probe fail in transit. B must stay a retried GlassnodeNetworkError with nothing
+    // signed; only then does A's paid request fail, which must be flagged as possibly settled.
+    let releaseA: ((error: unknown) => void) | undefined;
+    const aFailure = new TypeError('A reset');
+    const bFailure = new TypeError('B probe down');
+    const isB = (call: unknown[]) => (call[0] as Request).url.includes('/v1/metadata/assets');
+    const baseFetch = vi.fn((input: RequestInfo | URL) => {
+      if (isB([input])) return Promise.reject(bFailure);
+      if (!isPaidCall([input])) return Promise.resolve(response402());
+      return new Promise<Response>((_, reject) => {
+        releaseA = reject;
+      });
+    });
+    const signTypedData = vi.fn(async (): Promise<`0x${string}`> => FAKE_SIGNATURE);
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(signTypedData),
+      fetch: baseFetch as typeof fetch,
+    });
+    const api = paidApi(paidFetch, { maxRetries: 2 });
+
+    const a = caught(api.getMetricList());
+    await vi.waitFor(() => expect(releaseA).toBeDefined());
+
+    const b = await caught(api.getAssetMetadata());
+    expect(b).toBeInstanceOf(GlassnodeNetworkError);
+    expect(b).not.toBeInstanceOf(GlassnodePaymentError);
+    expect((b as GlassnodeNetworkError).cause).toBe(bFailure);
+    const bCalls = baseFetch.mock.calls.filter(isB);
+    expect(bCalls).toHaveLength(3); // retried: 1 + maxRetries
+    expect(bCalls.filter(isPaidCall)).toHaveLength(0);
+
+    releaseA!(aFailure);
+    const aErr = (await a) as GlassnodePaymentError;
+    expect(aErr).toBeInstanceOf(GlassnodePaymentError);
+    expect(aErr.paymentMayHaveSettled).toBe(true);
+    expect(aErr.cause).toBe(aFailure);
+    // Only A signed, once.
+    expect(signTypedData).toHaveBeenCalledTimes(1);
+    expect(baseFetch.mock.calls.filter(isPaidCall)).toHaveLength(1);
+  });
+
+  it("an unpaid probe 503 stays a plain response while another call's payment is in flight", async () => {
+    let releaseA: ((response: Response) => void) | undefined;
+    const baseFetch = vi.fn((input: RequestInfo | URL) => {
+      if ((input as Request).url.endsWith('/b')) {
+        return Promise.resolve(new Response('', { status: 503 }));
+      }
+      if (!isPaidCall([input])) return Promise.resolve(response402());
+      return new Promise<Response>((resolve) => {
+        releaseA = resolve;
+      });
+    });
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(),
+      fetch: baseFetch as typeof fetch,
+    });
+    const a = caught(paidFetch('https://x402.glassnode.com/a'));
+    await vi.waitFor(() => expect(releaseA).toBeDefined());
+
+    const b = await paidFetch('https://x402.glassnode.com/b');
+    expect(b.status).toBe(503);
+
+    releaseA!(new Response('', { status: 502 }));
+    const aErr = (await a) as GlassnodePaymentError;
+    expect(aErr).toBeInstanceOf(GlassnodePaymentError);
+    expect(aErr.status).toBe(502);
+    expect(aErr.paymentMayHaveSettled).toBe(true);
+  });
+});
+
+describe('createX402Fetch — 3xx on the paid request', () => {
+  it.each([301, 302, 303, 307, 308])(
+    "paid request -> %i (redirect: 'manual') is a GlassnodePaymentError with the status",
+    async (status) => {
+      const baseFetch = vi.fn(async (input: RequestInfo | URL) =>
+        isPaidCall([input])
+          ? new Response(null, { status, headers: { Location: 'https://example.invalid/' } })
+          : response402()
+      );
+      const signTypedData = vi.fn(async (): Promise<`0x${string}`> => FAKE_SIGNATURE);
+      const paidFetch = await createX402Fetch({
+        account: fakeAccount(signTypedData),
+        fetch: baseFetch as typeof fetch,
+      });
+      const err = (await caught(
+        paidFetch(METRICS_URL, { redirect: 'manual' })
+      )) as GlassnodePaymentError;
+
+      expect(err).toBeInstanceOf(GlassnodePaymentError);
+      expect(err.paymentMayHaveSettled).toBe(true);
+      expect(err.status).toBe(status);
+      expect((err.cause as GlassnodeApiError).status).toBe(status);
+      // The redirect mode reached the base fetch on the paid request.
+      const paid = baseFetch.mock.calls.filter(isPaidCall)[0] as unknown as [Request];
+      expect(paid[0].redirect).toBe('manual');
+      expect(signTypedData).toHaveBeenCalledTimes(1);
+      expect(baseFetch).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it('a 3xx on the unpaid probe is passed through unchanged (nothing signed)', async () => {
+    const baseFetch = vi.fn(
+      async () => new Response(null, { status: 302, headers: { Location: 'https://x.invalid/' } })
+    );
+    const signTypedData = vi.fn(async (): Promise<`0x${string}`> => FAKE_SIGNATURE);
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(signTypedData),
+      fetch: baseFetch as typeof fetch,
+    });
+    const response = await paidFetch(METRICS_URL, { redirect: 'manual' });
+    expect(response.status).toBe(302);
+    expect(signTypedData).not.toHaveBeenCalled();
+  });
+});
+
+describe('createX402Fetch — maxRetries: 0', () => {
+  it.each([
+    [503, 'Service Unavailable'],
+    [500, 'Internal Server Error'],
+    [429, 'Too Many Requests'],
+    [400, 'Bad Request'],
+  ])(
+    'paid request -> %i is classified as GlassnodePaymentError, not GlassnodeApiError',
+    async (status, statusText) => {
+      const baseFetch = vi.fn(async (input: RequestInfo | URL) =>
+        isPaidCall([input]) ? new Response('', { status, statusText }) : response402()
+      );
+      const signTypedData = vi.fn(async (): Promise<`0x${string}`> => FAKE_SIGNATURE);
+      const paidFetch = await createX402Fetch({
+        account: fakeAccount(signTypedData),
+        fetch: baseFetch as typeof fetch,
+      });
+      const err = await caught(paidApi(paidFetch, { maxRetries: 0 }).getMetricList());
+
+      expect(err).toBeInstanceOf(GlassnodePaymentError);
+      expect(err).not.toBeInstanceOf(GlassnodeApiError);
+      const e = err as GlassnodePaymentError;
+      expect(e.paymentMayHaveSettled).toBe(true);
+      expect(e.status).toBe(status);
+      expect(e.cause).toBeInstanceOf(GlassnodeApiError);
+      expect((e.cause as GlassnodeApiError).statusText).toBe(statusText);
+      expect(signTypedData).toHaveBeenCalledTimes(1);
+      expect(baseFetch).toHaveBeenCalledTimes(2);
+    }
+  );
+});
+
+describe('createX402Fetch — PAYMENT_HEADERS tracks @x402/core', () => {
+  /** Headers the real @x402/fetch adds to the paid request that carry no payment. */
+  const NON_PAYMENT_HEADERS = new Set(['access-control-expose-headers']);
+
+  it('every header the real wrapFetchWithPayment adds to the paid request is recognised', async () => {
+    const requests: Request[] = [];
+    const baseFetch = vi.fn(async (input: RequestInfo | URL) => {
+      requests.push(input as Request);
+      return requests.length === 1 ? response402() : new Response('[]', { status: 200 });
+    });
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(),
+      fetch: baseFetch as typeof fetch,
+    });
+    await paidFetch(METRICS_URL);
+    expect(requests).toHaveLength(2);
+
+    const probeNames = new Set(requests[0].headers.keys());
+    const added = [...requests[1].headers.keys()].filter(
+      (name) => !probeNames.has(name) && !NON_PAYMENT_HEADERS.has(name)
+    );
+    // Sanity: the paid request does carry something beyond the probe's headers.
+    expect(added.length).toBeGreaterThan(0);
+    for (const name of added) {
+      const value = requests[1].headers.get(name) as string;
+      expect(await detectedAsPaid(METRICS_URL, { headers: { [name]: value } }), name).toBe(true);
+    }
+  });
+
+  it.each([1, 2])(
+    'every header encodePaymentSignatureHeader emits for x402 v%i is recognised',
+    async (x402Version) => {
+      const httpClient = new x402HTTPClient(new x402Client());
+      const headers = httpClient.encodePaymentSignatureHeader({
+        x402Version,
+      } as Parameters<typeof httpClient.encodePaymentSignatureHeader>[0]);
+      const names = Object.keys(headers);
+      expect(names.length).toBeGreaterThan(0);
+      for (const name of names) {
+        const value = headers[name];
+        expect(await detectedAsPaid(METRICS_URL, { headers: { [name]: value } }), name).toBe(true);
+      }
+    }
+  );
 });

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.22.2
+
+- Tests: cover x402 payment detection on `init.headers` (plain object, `Headers`, array of tuples)
+  and with header-name casing variations, on cross-realm (`node:vm`) `Headers`/`Request` objects,
+  and for concurrent calls on one wrapped fetch (a paid call failing in transit does not change how
+  another call's unpaid probe failure is classified).
+- Tests: cover a 3xx answer to the paid request (`redirect: 'manual'`) and `maxRetries: 0` with a
+  non-2xx paid response — both are `GlassnodePaymentError` with `paymentMayHaveSettled: true`.
+- Tests: tripwires that fail if `@x402/fetch` / `@x402/core` emits a payment header that
+  `PAYMENT_HEADERS` does not recognise; the constant is documented as tracking
+  `encodePaymentSignatureHeader`. No library behavior change.
+
 ## 0.22.1
 
 - Fixed: a non-JSON error body (e.g. an HTML page from a proxy) is now redacted before it is cut to

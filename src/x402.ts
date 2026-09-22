@@ -216,7 +216,16 @@ function requestApiKeys(input: unknown, init: RequestInit | undefined): string[]
   return keys;
 }
 
-/** Request headers that carry a signed x402 payment (protocol v2 and v1 respectively). */
+/**
+ * Request headers that carry a signed x402 payment (protocol v2 and v1 respectively).
+ *
+ * Money-safety depends on this list: it MUST track the header names `@x402/core`'s
+ * `x402HTTPClient.encodePaymentSignatureHeader` emits (source `src/http/x402HTTPClient.ts`;
+ * verified in `@x402/core@2.25.0`, built into `dist/esm/chunk-RAWLCYSQ.mjs`: v2 →
+ * `PAYMENT-SIGNATURE`, v1 → `X-PAYMENT`). A header missing here would make a paid request look
+ * unpaid, so a failure after payment could be retried and pay twice. `test/x402.spec.ts` fails
+ * if the installed library emits a header this list does not recognise.
+ */
 const PAYMENT_HEADERS = ['PAYMENT-SIGNATURE', 'X-PAYMENT'];
 
 /** Whether a base-fetch call carries an x402 payment header, in its `Request` or its `init`. */
