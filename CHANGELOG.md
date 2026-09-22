@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.23.1
+
+- Tooling: add a `.prettierignore` that excludes the generated lockfiles (`pnpm-lock.yaml`,
+  `examples/package-lock.json`), so `pnpm run format` (and the `version` lifecycle script) no longer
+  reformats the pnpm lockfile. Prettier still honors `.gitignore`, and `prettier --check .` now
+  passes on the whole repo. No package change.
+
 ## 0.23.0
 
 - Added: structured observability hooks — the `hooks` config option,

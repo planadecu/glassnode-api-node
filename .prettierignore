@@ -1,0 +1,7 @@
+# Prettier 3 also reads .gitignore (dist/, coverage/, node_modules/, .claude/, ...),
+# so only tracked paths that must not be reformatted belong here.
+
+# Lockfiles are generated and owned by their package managers (pnpm at the root,
+# npm in examples/); reformatting them only churns diffs against what the tool writes.
+pnpm-lock.yaml
+package-lock.json
