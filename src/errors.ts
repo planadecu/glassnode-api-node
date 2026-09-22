@@ -81,3 +81,19 @@ export class GlassnodeConfigError extends GlassnodeError {
     this.name = 'GlassnodeConfigError';
   }
 }
+
+/**
+ * An argument passed to a client method is invalid (e.g. a malformed metric path, or a query
+ * parameter the client controls itself such as `f` or `api_key`). Raised before any request is
+ * sent — no network call is made. Never retried.
+ */
+export class GlassnodeInputError extends GlassnodeError {
+  /** Which argument was rejected: `metricPath`, or `params.<name>` for a query parameter. */
+  readonly argument: string;
+
+  constructor(message: string, options: { argument: string; cause?: unknown }) {
+    super(message, { cause: options.cause });
+    this.name = 'GlassnodeInputError';
+    this.argument = options.argument;
+  }
+}

@@ -11,6 +11,7 @@ import {
   GlassnodeError,
   GlassnodeApiError,
   GlassnodeConfigError,
+  GlassnodeInputError,
   GlassnodeNetworkError,
   GlassnodeValidationError,
 } from './errors.js';
@@ -49,6 +50,85 @@ function validateResponse<T>(schema: ZodType<T>, data: unknown, endpoint: string
     `Glassnode API error: response from ${endpoint} did not match the expected schema — ${summarizeIssues(result.error)}`,
     { cause: result.error, endpoint }
   );
+}
+
+/** One metric path segment: URL-safe characters only, so the path never needs encoding. */
+const METRIC_PATH_SEGMENT = /^[A-Za-z0-9_.-]+$/;
+
+/** Return why `path` is not a valid metric path, or undefined if it is valid. */
+function metricPathProblem(path: string): string | undefined {
+  if (path === '') return 'must not be empty';
+  if (/\s/.test(path)) return 'must not contain whitespace';
+  if (!path.startsWith('/')) {
+    const fixed = '/' + path;
+    return metricPathProblem(fixed) === undefined
+      ? `must start with "/" (did you mean "${fixed}"?)`
+      : 'must start with "/"';
+  }
+  for (const segment of path.slice(1).split('/')) {
+    if (segment === '') return 'must not contain an empty segment ("//" or a trailing "/")';
+    if (segment === '.' || segment === '..') return `must not contain a "${segment}" segment`;
+    if (!METRIC_PATH_SEGMENT.test(segment)) {
+      return 'contains an invalid character (allowed: letters, digits, "_", "-", "." and "/")';
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Validate a caller-supplied metric path (e.g. `/market/price_usd_close`). Malformed paths are
+ * rejected — never silently rewritten — with a GlassnodeInputError, before any request is made.
+ * Messages never echo a full URL or a query string, which could carry an API key.
+ */
+function assertMetricPath(path: unknown): asserts path is string {
+  const fail = (reason: string): never => {
+    throw new GlassnodeInputError(`Invalid metricPath: ${reason}`, { argument: 'metricPath' });
+  };
+  if (typeof path !== 'string') return fail(`must be a string, got ${typeof path}`);
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path)) {
+    return fail('pass only the metric path (e.g. "/market/price_usd_close"), not a full URL');
+  }
+  if (path.includes('?')) {
+    return fail('must not include a query string — pass query parameters via `params` instead');
+  }
+  if (path.includes('#')) return fail('must not contain "#"');
+  const problem = metricPathProblem(path);
+  if (problem) fail(`${JSON.stringify(path)} ${problem}`);
+}
+
+/**
+ * Reject query parameters the client sets itself, instead of silently overriding them:
+ * `api_key` always (configure `apiKey` instead), `f` unless it asks for JSON (the client only
+ * parses JSON), and any extra names in `reserved` (e.g. `path` for the metadata endpoints).
+ */
+function assertParams(
+  params: Record<string, string>,
+  options: { format?: boolean; reserved?: string[] } = {}
+): void {
+  const has = (name: string) => Object.prototype.hasOwnProperty.call(params ?? {}, name);
+  if (has('api_key')) {
+    throw new GlassnodeInputError(
+      'Invalid params: `api_key` must not be passed as a query parameter — set `apiKey` in the GlassnodeAPI config instead',
+      { argument: 'params.api_key' }
+    );
+  }
+  if (options.format && has('f')) {
+    const f = params.f;
+    if (typeof f !== 'string' || f.toLowerCase() !== 'json') {
+      throw new GlassnodeInputError(
+        `Invalid params: f=${JSON.stringify(f)} is not supported — this client only supports JSON responses (omit \`f\`)`,
+        { argument: 'params.f' }
+      );
+    }
+  }
+  for (const name of options.reserved ?? []) {
+    if (has(name)) {
+      throw new GlassnodeInputError(
+        `Invalid params: \`${name}\` is set by the client from the metricPath argument and must not be passed in params`,
+        { argument: `params.${name}` }
+      );
+    }
+  }
 }
 
 /**
@@ -234,11 +314,15 @@ export class GlassnodeAPI {
    * @param metricPath Path of the metric
    * @param params Queried parameters for the metric
    * @returns Promise resolving to validated metric metadata
+   * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
+   *   malformed or `params` contains `path` or `api_key`
    */
   async getMetricMetadata(
     metricPath: string,
     params: Record<string, string> = {}
   ): Promise<MetricMetadataResponse> {
+    assertMetricPath(metricPath);
+    assertParams(params, { reserved: ['path'] });
     const endpoint = '/v1/metadata/metric';
     const response = await this.request(endpoint, { path: metricPath, ...params });
     return validateResponse(MetricMetadataResponseSchema, response, endpoint);
@@ -250,11 +334,15 @@ export class GlassnodeAPI {
    * @param metricPath Path of the metric (e.g. /institutions/us_spot_etf_balances_all)
    * @param params Optional query parameters (e.g. `a` to scope stats to an asset)
    * @returns Promise resolving to validated metric stats
+   * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
+   *   malformed or `params` contains `path` or `api_key`
    */
   async getMetricStats(
     metricPath: string,
     params: Record<string, string> = {}
   ): Promise<MetricStatsResponse> {
+    assertMetricPath(metricPath);
+    assertParams(params, { reserved: ['path'] });
     const endpoint = '/v1/metadata/metric/stats';
     const response = await this.request(endpoint, { path: metricPath, ...params });
     return validateResponse(MetricStatsResponseSchema, response, endpoint);
@@ -275,8 +363,12 @@ export class GlassnodeAPI {
    * @param metricPath Path of the metric (e.g. /accumulation_balance)
    * @param params Queried parameters for the metric
    * @returns Promise resolving to the response data
+   * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
+   *   malformed, `params.f` is anything but `json`, or `params` contains `api_key`
    */
   async callMetric<T>(metricPath: string, params: Record<string, string> = {}): Promise<T> {
+    assertMetricPath(metricPath);
+    assertParams(params, { format: true });
     const response = await this.request('/v1/metrics' + metricPath, { ...params, f: 'json' });
     return response as T;
   }
@@ -286,11 +378,15 @@ export class GlassnodeAPI {
    * @param metricPath Path of the metric (e.g. /market/marketcap_usd)
    * @param params Query parameters
    * @returns Promise resolving to validated bulk response
+   * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
+   *   malformed, `params.f` is anything but `json`, or `params` contains `api_key`
    */
   async callBulkMetric(
     metricPath: string,
     params: Record<string, string> = {}
   ): Promise<BulkResponse> {
+    assertMetricPath(metricPath);
+    assertParams(params, { format: true });
     const endpoint = '/v1/metrics' + metricPath + '/bulk';
     const response = await this.request<{ data?: unknown }>(endpoint, { ...params, f: 'json' });
     return validateResponse(BulkResponseSchema, response?.data, endpoint);

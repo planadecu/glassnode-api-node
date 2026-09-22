@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.14.0
+
+- **Invalid input is rejected before any request is sent.** New exported error class
+  `GlassnodeInputError` (extends `GlassnodeError`, with `argument`: `metricPath` or
+  `params.<name>`). Methods are `async`, so it arrives as a rejected promise; `fetch` is never
+  called. A new class was added because none of the existing ones fit: `GlassnodeConfigError` is
+  about constructor options and `GlassnodeValidationError` about server responses (its `endpoint`
+  refers to a request that was made).
+- **One metric-path policy for `callMetric`, `callBulkMetric`, `getMetricMetadata` and
+  `getMetricStats`: validate, never rewrite.** A path must be `/segment[/segment...]` with
+  segments of letters, digits, `_`, `-`, `.`. Rejected: non-strings, empty string, a missing
+  leading `/` (the message suggests the fixed path), whitespace anywhere, empty segments (`/`,
+  `//x`, `/a//b`, trailing `/`), `.`/`..` segments, a query string or `#`, a full URL, and any
+  other character (`%`, `\`, ...). Previously `callMetric('market/price_usd_close')` requested
+  `/v1/metricsmarket/price_usd_close` and failed later as a confusing 404, and `..` segments could
+  reach other endpoints.
+- **Parameters the client controls are no longer silently overridden:**
+  - `f` in `callMetric` / `callBulkMetric`: anything other than `json` (case-insensitive) is
+    rejected; previously e.g. `f: 'csv'` was silently replaced with `json`. `f: 'json'` still
+    works.
+  - `api_key` in `params` (any method taking `params`): always rejected — set `apiKey` in the
+    config. Previously it was silently replaced by the configured key (or, in x402 mode without
+    `apiKey`, sent as-is).
+  - `path` in `params` of `getMetricMetadata` / `getMetricStats`: rejected. Previously it
+    silently overrode the `metricPath` argument.
+- **Observable changes for existing callers:** calls with the inputs above, which previously sent
+  a request (and usually failed with a `GlassnodeApiError`, or silently used different parameters
+  than requested), now reject with `GlassnodeInputError` without a request. Valid calls are
+  unchanged: the same URLs are requested. Released as a minor bump under 0.x, consistent with
+  previous 0.x releases.
+- README: input rules under "Methods" and a `GlassnodeInputError` row in the "Error types" table.
+
 ## 0.13.0
 
 - **One error hierarchy for every failure.** All errors thrown by `GlassnodeAPI` now extend a new
@@ -78,7 +110,7 @@
   the type-checked integration test), and consumers on `moduleResolution: node16` with
   `skipLibCheck: false` no longer pull in `viem`'s type chain — clearing `TS1541` and ~12 transitive
   errors from the shipped `.d.ts`.
-  - No runtime change. **Type-level note:** the accepted input is wider but the *read* type is
+  - No runtime change. **Type-level note:** the accepted input is wider but the _read_ type is
     narrower — code that extracted `X402FetchOptions['account']` and called viem-specific methods on
     it will no longer compile (fine under 0.x; pass/keep a viem account as before and nothing
     changes).

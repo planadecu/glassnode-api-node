@@ -93,17 +93,17 @@ const data = await api.callMetric('/market/price_usd_close', {
 
 `new GlassnodeAPI(config)`
 
-| Option       | Type                                            | Default                     | Description                                                                              |
-| ------------ | ----------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------- |
-| `apiKey`     | `string`                                        | — (required unless `x402`)  | Your Glassnode API key                                                                   |
-| `apiUrl`     | `string`                                        | `https://api.glassnode.com` | Base URL for the API                                                                     |
-| `x402`       | `boolean`                                       | `false`                     | Route through the paid x402 endpoint (see [Paid calls with x402](#paid-calls-with-x402)) |
-| `logger`     | `(message: string, ...args: unknown[]) => void` | —                           | Callback for debug logging (e.g. `console.log`)                                          |
-| `fetch`      | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (or an x402-wrapped fetch)                                   |
-| `maxRetries` | `number`                                        | `0`                         | Retries for retryable errors (`429`, `5xx`)                                              |
-| `retryDelay` | `number`                                        | `1000`                      | Base retry delay in ms (doubles each attempt, then full jitter)                          |
-| `maxRetryDelay` | `number`                                     | `30000`                     | Upper bound in ms for a single retry wait                                                |
-| `timeout`    | `number`                                        | — (no timeout)              | Per-request timeout in ms; each attempt aborts via `AbortSignal.timeout()`               |
+| Option          | Type                                            | Default                     | Description                                                                              |
+| --------------- | ----------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------- |
+| `apiKey`        | `string`                                        | — (required unless `x402`)  | Your Glassnode API key                                                                   |
+| `apiUrl`        | `string`                                        | `https://api.glassnode.com` | Base URL for the API                                                                     |
+| `x402`          | `boolean`                                       | `false`                     | Route through the paid x402 endpoint (see [Paid calls with x402](#paid-calls-with-x402)) |
+| `logger`        | `(message: string, ...args: unknown[]) => void` | —                           | Callback for debug logging (e.g. `console.log`)                                          |
+| `fetch`         | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (or an x402-wrapped fetch)                                   |
+| `maxRetries`    | `number`                                        | `0`                         | Retries for retryable errors (`429`, `5xx`)                                              |
+| `retryDelay`    | `number`                                        | `1000`                      | Base retry delay in ms (doubles each attempt, then full jitter)                          |
+| `maxRetryDelay` | `number`                                        | `30000`                     | Upper bound in ms for a single retry wait                                                |
+| `timeout`       | `number`                                        | — (no timeout)              | Per-request timeout in ms; each attempt aborts via `AbortSignal.timeout()`               |
 
 The config is validated at construction time — an invalid config (e.g. an empty `apiKey`) throws a `GlassnodeConfigError` immediately. When `x402` is enabled, `apiKey` is optional but a payment-capable `fetch` is required. Failed requests throw a `GlassnodeApiError` whose message includes the server's error detail (also on `.detail`).
 
@@ -120,6 +120,19 @@ The config is validated at construction time — an invalid config (e.g. an empt
 
 All response types are exported and fully typed.
 
+Arguments are checked before any request is sent; invalid input rejects with a
+`GlassnodeInputError` and no network call is made:
+
+- **Metric paths** (`path` in every method above) must look like `/market/price_usd_close`: a
+  leading `/`, and one or more non-empty segments of letters, digits, `_`, `-` and `.`. The client
+  never rewrites a path — a missing leading slash, whitespace, `//` or a trailing `/`, `.`/`..`
+  segments, a query string (`/market/price_usd_close?a=BTC`) or a full URL are all rejected
+  (a missing slash gets a "did you mean" hint). Pass query parameters via `params`.
+- **Parameters the client sets itself** cannot be overridden: `api_key` is always rejected (set
+  `apiKey` in the config), `f` is rejected unless it is `json` in `callMetric`/`callBulkMetric`
+  (the client only parses JSON), and `path` is rejected in `getMetricMetadata`/`getMetricStats`
+  (it comes from the `path` argument).
+
 ## Error Handling
 
 Every error the client throws is an instance of `GlassnodeError`, so a single `instanceof` check
@@ -128,13 +141,14 @@ matching needed.
 
 ### Error types
 
-| Class                      | Thrown when                                                                                                         | Useful properties                                                                       |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `GlassnodeError`           | Base class of all the errors below — catch this to handle any library failure                                       | `message`, `cause`                                                                      |
-| `GlassnodeApiError`        | The API answered with a non-2xx HTTP status (e.g. `401`, `404`, `429`, `5xx`)                                       | `status`, `statusText`, `detail` (server message), `isRetryable` (429 / 5xx)            |
-| `GlassnodeNetworkError`    | No HTTP response: connection/DNS failure, abort, or the per-request `timeout` firing. Retried when `maxRetries` > 0 | `timedOut` (`true` when `timeout` fired), `cause` (the original fetch error)            |
-| `GlassnodeValidationError` | A `2xx` response was unusable: the body was not valid JSON, or did not match the expected schema. Never retried     | `endpoint` (API path, e.g. `/v1/metadata/assets`), `cause` (`ZodError` / `SyntaxError`) |
-| `GlassnodeConfigError`     | The options passed to `new GlassnodeAPI(...)` are invalid (e.g. empty `apiKey`, `x402` without `fetch`)             | `message` (lists the invalid fields), `cause` (`ZodError`)                              |
+| Class                      | Thrown when                                                                                                                                         | Useful properties                                                                       |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `GlassnodeError`           | Base class of all the errors below — catch this to handle any library failure                                                                       | `message`, `cause`                                                                      |
+| `GlassnodeApiError`        | The API answered with a non-2xx HTTP status (e.g. `401`, `404`, `429`, `5xx`)                                                                       | `status`, `statusText`, `detail` (server message), `isRetryable` (429 / 5xx)            |
+| `GlassnodeNetworkError`    | No HTTP response: connection/DNS failure, abort, or the per-request `timeout` firing. Retried when `maxRetries` > 0                                 | `timedOut` (`true` when `timeout` fired), `cause` (the original fetch error)            |
+| `GlassnodeValidationError` | A `2xx` response was unusable: the body was not valid JSON, or did not match the expected schema. Never retried                                     | `endpoint` (API path, e.g. `/v1/metadata/assets`), `cause` (`ZodError` / `SyntaxError`) |
+| `GlassnodeConfigError`     | The options passed to `new GlassnodeAPI(...)` are invalid (e.g. empty `apiKey`, `x402` without `fetch`)                                             | `message` (lists the invalid fields), `cause` (`ZodError`)                              |
+| `GlassnodeInputError`      | A method argument is invalid (malformed metric path, `f` other than `json`, `api_key`/`path` in `params`). Raised before any request; never retried | `argument` (`metricPath` or `params.<name>`)                                            |
 
 ```typescript
 import {
@@ -143,6 +157,7 @@ import {
   GlassnodeApiError,
   GlassnodeNetworkError,
   GlassnodeValidationError,
+  GlassnodeInputError,
 } from 'glassnode-api';
 
 try {
@@ -157,6 +172,8 @@ try {
     console.error(err.timedOut ? 'request timed out' : 'network failure', err.cause);
   } else if (err instanceof GlassnodeValidationError) {
     console.error(`unexpected response from ${err.endpoint}`, err.cause);
+  } else if (err instanceof GlassnodeInputError) {
+    console.error(`bad ${err.argument}: ${err.message}`); // fix the call; nothing was sent
   } else if (err instanceof GlassnodeError) {
     // any other library error
   }
