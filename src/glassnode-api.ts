@@ -184,9 +184,16 @@ function formatParamValue(value: unknown): { value: string } | { problem: string
 }
 
 /**
+ * Query parameters ready to send: each value is one string, or (from an array) the strings the
+ * parameter is repeated with, in order.
+ */
+type NormalizedParams = Record<string, string | string[]>;
+
+/**
  * Validate caller-supplied query parameters and convert them to the strings that are sent (see
- * `MetricParamValue`): `undefined` values are dropped, invalid values are rejected. Also
- * rejects parameters the client sets itself, instead of silently overriding them: `api_key`
+ * `MetricParamValue`): `undefined` values are dropped, invalid values are rejected, and a
+ * non-empty array becomes the parameter repeated once per element (each converted the same way).
+ * Also rejects parameters the client sets itself, instead of silently overriding them: `api_key`
  * always (configure `apiKey` instead), `f` unless it asks for JSON (the client only parses JSON),
  * and any extra names in `reserved` (e.g. `path` for the metadata endpoints). Keeps key order,
  * so string-only params produce exactly the same URL as before.
@@ -194,9 +201,9 @@ function formatParamValue(value: unknown): { value: string } | { problem: string
 function normalizeParams(
   params: unknown,
   options: { format?: boolean; reserved?: string[] } = {}
-): Record<string, string> {
+): NormalizedParams {
   // A null-prototype record, so a "__proto__" param stays an ordinary key.
-  const out: Record<string, string> = Object.create(null);
+  const out: NormalizedParams = Object.create(null);
   if (params === undefined || params === null) return out;
   if (typeof params !== 'object' || Array.isArray(params) || dateTime(params) !== undefined) {
     throw new GlassnodeInputError(
@@ -234,15 +241,59 @@ function normalizeParams(
   for (const name of Object.keys(record)) {
     const raw = record[name];
     if (raw === undefined) continue;
-    const result = formatParamValue(raw);
-    if ('problem' in result) {
-      throw new GlassnodeInputError(`Invalid params: \`${name}\` ${result.problem}`, {
+    const fail = (subject: string, problem: string): never => {
+      throw new GlassnodeInputError(`Invalid params: \`${subject}\` ${problem}`, {
         argument: `params.${name}`,
       });
+    };
+    if (!Array.isArray(raw)) {
+      const result = formatParamValue(raw);
+      if ('problem' in result) fail(name, result.problem);
+      else out[name] = result.value;
+      continue;
     }
-    out[name] = result.value;
+    // An array is sent as the parameter repeated once per element (`a=BTC&a=ETH`), in order.
+    if (SINGLE_VALUED_PARAMS.has(name)) {
+      fail(name, 'takes a single value, got an array');
+    }
+    if (raw.length === 0) {
+      // Omitting it would silently widen the request to the server default (e.g. every asset).
+      fail(name, 'must not be an empty array — omit the parameter (or pass undefined) instead');
+    }
+    const values: string[] = [];
+    // An index loop (not for…of / map) so holes in a sparse array are seen as undefined.
+    for (let index = 0; index < raw.length; index++) {
+      const element: unknown = raw[index];
+      const subject = `${name}[${index}]`;
+      if (element === undefined) fail(subject, 'must not be undefined');
+      const result = formatParamValue(element);
+      if ('problem' in result) fail(subject, result.problem);
+      else values.push(result.value);
+    }
+    out[name] = values;
   }
   return out;
+}
+
+/**
+ * Parameters Glassnode only ever takes one value for (the bulk-metrics docs list `s`, `u`, `i`,
+ * `c` and `f` as fixed per request), so an array for them is rejected rather than repeated.
+ * `f` never reaches this check: a non-string `f` is already rejected as non-JSON.
+ */
+const SINGLE_VALUED_PARAMS: ReadonlySet<string> = new Set(['s', 'u', 'i', 'c', 'f']);
+
+/**
+ * Build the query string from normalized params, in key order: a string value is one
+ * `name=value` pair, a string array is the name repeated once per element (never comma-joined).
+ * Byte-identical to `new URLSearchParams(record)` when every value is a string.
+ */
+function buildQuery(params: NormalizedParams): URLSearchParams {
+  const query = new URLSearchParams();
+  for (const [name, value] of Object.entries(params)) {
+    if (typeof value === 'string') query.append(name, value);
+    else for (const element of value) query.append(name, element);
+  }
+  return query;
 }
 
 /** Render a rejected value for an error message without throwing (e.g. on a symbol or bigint). */
@@ -536,17 +587,16 @@ export class GlassnodeAPI {
    */
   private async request<T>(
     endpoint: string,
-    params: Record<string, string> = {},
+    params: NormalizedParams = {},
     options: ResolvedCallOptions = {},
     finish: (body: unknown) => T = (body) => body as T
   ): Promise<T> {
     // The key goes in the query string (default) or the X-Api-Key header — never both, and
     // neither when there is no key (e.g. x402 mode).
     const keyInHeader = this.apiKeyLocation === 'header' && this.apiKey !== undefined;
-    const queryParams = new URLSearchParams({
-      ...params,
-      ...(this.apiKey && !keyInHeader ? { api_key: this.apiKey } : {}),
-    });
+    const queryParams = buildQuery(params);
+    // Always last; `api_key` is never among `params` (normalizeParams rejects it).
+    if (this.apiKey && !keyInHeader) queryParams.append('api_key', this.apiKey);
     const url = `${this.apiUrl}${endpoint}?${queryParams}`;
     const trace: CallTrace = {
       callId: nextCallId++,

@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.24.0
+
+- Added: **repeated query parameters.** An array param value is sent as the parameter repeated
+  once per element, in the given order — `{ a: ['BTC', 'ETH'] }` → `a=BTC&a=ETH` — which is how
+  Glassnode takes several values for one parameter (e.g. the asset/exchange/network whitelists of
+  the bulk endpoints). Works in `callMetric`, `callBulkMetric`, `getMetricMetadata` and
+  `getMetricStats`, with the API key in the query or the `X-Api-Key` header, and through x402.
+  Each element is converted with the single-value rules (numbers, booleans, `Date` → unix
+  seconds).
+- Rejected with `GlassnodeInputError` (`argument` `params.<name>`, message naming `<name>[index]`)
+  before any request: an empty array (omitting the param would silently widen the request to the
+  server default, e.g. every asset), `undefined`/`null`/hole, nested-array or object elements,
+  elements that fail the single-value rules (e.g. `NaN`), and an array for the single-valued `s`,
+  `u`, `i`, `c` or `f` ("takes a single value"). Arrays for the reserved `api_key` and `path` stay
+  rejected as before.
+- Types: `MetricParams.a` and `.e` are `string | readonly string[]`, and the index signature
+  accepts `MetricParamValue | readonly MetricParamValue[]`; `s`, `u`, `i`, `c` and `f` stay
+  single-valued.
+- Docs: corrected the 0.18.0 changelog entry, which told callers to replace an array with a
+  comma-joined string — `a=BTC,ETH` (sent as `a=BTC%2CETH`) is not the same as two values. The
+  README "Query parameters" section now documents arrays with a repeated-param example.
+- **Observable for callers:** URLs for non-array params are byte-identical. An array value that
+  used to throw `GlassnodeInputError` is now sent as a repeated param (for `s`/`u`/`i`/`c` it still
+  throws, with a new message). Type-level: code that _reads_ `a`, `e` or an index-signature
+  property back out of a `MetricParams` value now sees the wider union and may need a narrowing.
+  Minor bump: new feature and widened parameter types.
+
 ## 0.23.1
 
 - Tooling: add a `.prettierignore` that excludes the generated lockfiles (`pnpm-lock.yaml`,
@@ -219,8 +246,11 @@
   object (e.g. a string or an array) is rejected with `argument` `params`.
 - **Observable for callers:** typed string callers see no change. Untyped (JavaScript) callers
   that passed `null`, an array (e.g. `['BTC', 'ETH']`, previously sent as `BTC,ETH`) or another
-  non-primitive now get a `GlassnodeInputError` instead of a stringified value (pass a
-  comma-joined string instead), and `undefined` values are dropped rather than sent. A literal
+  non-primitive now get a `GlassnodeInputError` instead of a stringified value, and `undefined`
+  values are dropped rather than sent. (Corrected in 0.24.0: this entry used to suggest a
+  comma-joined string as the replacement for an array, but Glassnode does not treat `a=BTC,ETH` as
+  two values; since 0.24.0 pass the array, which is sent as a repeated parameter,
+  `a=BTC&a=ETH`.) A literal
   `{ api_key: '…' }` in `params` is now a compile error as well as the existing runtime
   rejection. Minor bump: widened parameter types and new exports.
 

@@ -166,10 +166,11 @@ Arguments are checked before any request is sent; invalid input rejects with a
   never rewrites a path — a missing leading slash, whitespace, `//` or a trailing `/`, `.`/`..`
   segments, a query string (`/market/price_usd_close?a=BTC`) or a full URL are all rejected
   (a missing slash gets a "did you mean" hint). Pass query parameters via `params`.
-- **Parameter values** must be a string, finite number, boolean or valid `Date` (see
-  [Query parameters](#query-parameters)); `null`, `NaN`/`Infinity`, unsafe integers, an invalid
-  `Date`, objects and arrays are rejected (`argument` is `params.<name>`), and `params` itself
-  must be an object.
+- **Parameter values** must be a string, finite number, boolean or valid `Date`, or a non-empty
+  array of those for a repeated parameter (see [Query parameters](#query-parameters)); `null`,
+  `NaN`/`Infinity`, unsafe integers, an invalid `Date`, objects, empty or nested arrays, arrays
+  with `undefined`/`null` elements and arrays for the single-valued `s`, `u`, `i`, `c` and `f` are
+  rejected (`argument` is `params.<name>`), and `params` itself must be an object.
 - **Parameters the client sets itself** cannot be overridden: `api_key` is always rejected (set
   `apiKey` in the config), `f` is rejected unless it is `json` (case-insensitive) in
   `callMetric`, `callBulkMetric`, `getMetricMetadata` and `getMetricStats` (the client only parses
@@ -185,15 +186,15 @@ Arguments are checked before any request is sent; invalid input rejects with a
 `getMetricStats`) is typed as `MetricParams`. The common Glassnode parameters are typed; any other
 parameter a metric documents can be passed as well:
 
-| Param  | Type                       | Meaning                                                      |
-| ------ | -------------------------- | ------------------------------------------------------------ |
-| `a`    | `string`                   | Asset, e.g. `'BTC'` (`'*'` for all assets on bulk endpoints) |
-| `s`    | `number \| string \| Date` | Since — start of the range, unix **seconds**                 |
-| `u`    | `number \| string \| Date` | Until — end of the range, unix **seconds**                   |
-| `i`    | `string`                   | Interval, e.g. `'10m'`, `'1h'`, `'24h'`, `'1w'`, `'1month'`  |
-| `c`    | `string`                   | Currency, e.g. `'native'`, `'usd'`                           |
-| `e`    | `string`                   | Exchange, e.g. `'binance'`                                   |
-| others | `MetricParamValue`         | `string \| number \| boolean \| Date`                        |
+| Param  | Type                                     | Meaning                                                      |
+| ------ | ---------------------------------------- | ------------------------------------------------------------ |
+| `a`    | `string \| string[]`                     | Asset, e.g. `'BTC'` (`'*'` for all assets on bulk endpoints) |
+| `s`    | `number \| string \| Date`               | Since — start of the range, unix **seconds**                 |
+| `u`    | `number \| string \| Date`               | Until — end of the range, unix **seconds**                   |
+| `i`    | `string`                                 | Interval, e.g. `'10m'`, `'1h'`, `'24h'`, `'1w'`, `'1month'`  |
+| `c`    | `string`                                 | Currency, e.g. `'native'`, `'usd'`                           |
+| `e`    | `string \| string[]`                     | Exchange, e.g. `'binance'`                                   |
+| others | `MetricParamValue \| MetricParamValue[]` | `string \| number \| boolean \| Date`, or an array of them   |
 
 Values are converted to query-string text before the request:
 
@@ -206,6 +207,13 @@ Values are converted to query-string text before the request:
   `2021-01-01T00:00:00.999Z` → `1609459200`). An invalid `Date` is rejected.
 - **undefined** — the parameter is omitted, so optional values can be passed directly
   (`{ a: 'BTC', s: since }` with `since?: number`). `null` is rejected.
+- **array** — the parameter is sent **repeated**, once per element, in order:
+  `{ a: ['BTC', 'ETH'] }` → `a=BTC&a=ETH`. This is how Glassnode takes several values for one
+  parameter (e.g. an asset or exchange whitelist on bulk endpoints); a comma-joined string
+  (`'BTC,ETH'`) is **not** equivalent — it is sent as one value, `a=BTC%2CETH`. Each element is
+  converted like a single value. An empty array is rejected (omit the parameter instead), as are
+  `undefined`/`null`/array/object elements and arrays for the single-valued `s`, `u`, `i`, `c`
+  and `f`. `readonly` arrays are accepted.
 
 Numbers are sent as-is: pass `s`/`u` in **seconds** (not `Date.now()` milliseconds) — or pass a
 `Date` and let the client convert it.
@@ -216,6 +224,16 @@ const recent = await api.callMetric('/market/price_usd_close', {
   a: 'BTC',
   s: oneWeekAgo,
   i: '1h',
+});
+```
+
+Repeated parameters — e.g. market caps of just BTC and ETH from the bulk endpoint:
+
+```typescript
+// GET /v1/metrics/market/marketcap_usd/bulk?a=BTC&a=ETH&s=…&f=json
+const btcAndEth = await api.callBulkMetric('/market/marketcap_usd', {
+  a: ['BTC', 'ETH'],
+  s: oneWeekAgo,
 });
 ```
 

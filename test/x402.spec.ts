@@ -199,6 +199,26 @@ describe('createX402Fetch', () => {
     expect(err.message).not.toContain('SECRET-KEY');
   });
 
+  it('passes repeated query params (array values) through to the base fetch unchanged', async () => {
+    const baseFetch = vi.fn<typeof fetch>(async () =>
+      Response.json({ data: [{ t: 1, bulk: [] }] })
+    );
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(),
+      fetch: baseFetch,
+    });
+    await paidApi(paidFetch).callBulkMetric('/market/marketcap_usd', {
+      a: ['BTC', 'ETH'],
+      s: 1609459200,
+    });
+    expect(baseFetch).toHaveBeenCalledTimes(1);
+    const input = baseFetch.mock.calls[0][0];
+    const url = input instanceof Request ? input.url : String(input);
+    expect(url).toBe(
+      'https://x402.glassnode.com/v1/metrics/market/marketcap_usd/bulk?a=BTC&a=ETH&s=1609459200&f=json'
+    );
+  });
+
   it('base-fetch transport failure stays a retried GlassnodeNetworkError', async () => {
     const cause = new TypeError('fetch failed');
     const baseFetch = vi.fn(async () => {

@@ -175,7 +175,8 @@ describe('invalid param values', () => {
     ['an invalid Date', new Date('nope'), /invalid Date/],
     ['null', null, /must not be null/],
     ['an object', { v: 1 }, /must be a string, number, boolean or Date/],
-    ['an array', ['BTC', 'ETH'], /must be a string, number, boolean or Date/],
+    // `s` is single-valued; arrays for multi-value params are covered under 'repeated params'.
+    ['an array', [1609459200, 1609545600], /takes a single value, got an array/],
     ['a bigint', 10n, /must be a string, number, boolean or Date/],
     ['a symbol', Symbol('x'), /must be a string, number, boolean or Date/],
     ['a function', () => 1, /must be a string, number, boolean or Date/],
@@ -266,5 +267,222 @@ describe('MetricParams types', () => {
     await api.callMetric('/market/price_usd_close', { x: { y: 1 } }).catch(() => {});
     // @ts-expect-error — api_key is set by the client (configure apiKey)
     await api.callMetric('/market/price_usd_close', { api_key: 'k' }).catch(() => {});
+  });
+});
+
+describe('repeated params (array values)', () => {
+  const BULK = `${DEFAULT_API_URL}/v1/metrics/market/marketcap_usd/bulk`;
+
+  async function bulkUrlFor(params: unknown, config: Record<string, unknown> = {}) {
+    const fetchFn = okFetch({ data: [] });
+    const api = new GlassnodeAPI({ apiKey: API_KEY, fetch: fetchFn as typeof fetch, ...config });
+    await api.callBulkMetric('/market/marketcap_usd', params as MetricParams);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    return fetchFn.mock.calls[0] as [string, RequestInit?];
+  }
+
+  it('sends an array as the same param repeated, in the given order', async () => {
+    expect(await urlFor({ a: ['BTC', 'ETH', 'SOL'] })).toBe(
+      `${PRICE}?a=BTC&a=ETH&a=SOL&f=json&api_key=${API_KEY}`
+    );
+    expect(await urlFor({ a: ['ETH', 'BTC'] })).toBe(
+      `${PRICE}?a=ETH&a=BTC&f=json&api_key=${API_KEY}`
+    );
+  });
+
+  it('never comma-joins the values', async () => {
+    const url = await urlFor({ a: ['BTC', 'ETH'] });
+    expect(url).not.toContain('%2C');
+    expect(url).not.toContain('BTC,ETH');
+  });
+
+  it('keeps the key order when mixed with scalar params (api_key in the query)', async () => {
+    const [url, init] = await bulkUrlFor({
+      s: 1609459200,
+      a: ['BTC', 'ETH'],
+      i: '24h',
+      e: ['binance', 'kraken'],
+    });
+    expect(url).toBe(
+      `${BULK}?s=1609459200&a=BTC&a=ETH&i=24h&e=binance&e=kraken&f=json&api_key=${API_KEY}`
+    );
+    expect(init).toBeUndefined();
+  });
+
+  it("keeps the key out of the URL with apiKeyLocation 'header'", async () => {
+    const [url, init] = await bulkUrlFor(
+      { a: ['BTC', 'ETH'], s: 1609459200 },
+      { apiKeyLocation: 'header' }
+    );
+    expect(url).toBe(`${BULK}?a=BTC&a=ETH&s=1609459200&f=json`);
+    expect(init).toEqual({ headers: { 'X-Api-Key': API_KEY } });
+  });
+
+  it('sends a one-element array as a single param (same URL as the scalar)', async () => {
+    expect(await urlFor({ a: ['BTC'] })).toBe(await urlFor({ a: 'BTC' }));
+  });
+
+  it('sends duplicate elements as given', async () => {
+    expect(await urlFor({ a: ['BTC', 'BTC'] })).toBe(
+      `${PRICE}?a=BTC&a=BTC&f=json&api_key=${API_KEY}`
+    );
+  });
+
+  it('URL-encodes each element on its own', async () => {
+    expect(await urlFor({ x: ['a b', 'c&d', 'e,f'] })).toBe(
+      `${PRICE}?x=a+b&x=c%26d&x=e%2Cf&f=json&api_key=${API_KEY}`
+    );
+  });
+
+  it('converts each element with the scalar rules (number, boolean, Date)', async () => {
+    const d = new Date('2021-01-01T00:00:00.999Z');
+    expect(await urlFor({ x: [1, 0.5, -0, true, false, d, 'raw'] })).toBe(
+      `${PRICE}?x=1&x=0.5&x=0&x=true&x=false&x=1609459200&x=raw&f=json&api_key=${API_KEY}`
+    );
+  });
+
+  it('accepts a readonly (frozen) array', async () => {
+    const assets = Object.freeze(['BTC', 'ETH'] as const);
+    expect(await urlFor({ a: assets })).toBe(`${PRICE}?a=BTC&a=ETH&f=json&api_key=${API_KEY}`);
+  });
+
+  it('accepts an array from another realm', async () => {
+    const assets = runInNewContext('["BTC", "ETH"]') as string[];
+    expect(await urlFor({ a: assets })).toBe(`${PRICE}?a=BTC&a=ETH&f=json&api_key=${API_KEY}`);
+  });
+
+  it('does not mutate the caller array', async () => {
+    const assets = ['BTC', 'ETH'];
+    const params = { a: assets };
+    await urlFor(params);
+    expect(params.a).toBe(assets);
+    expect(assets).toEqual(['BTC', 'ETH']);
+  });
+
+  it('works in every public method, after `path` in the metadata endpoints', async () => {
+    const fetchFn = okFetch({ data: [] });
+    const api = client(fetchFn);
+    const params = { a: ['BTC', 'ETH'] };
+    await api.callMetric('/m/x', params);
+    await api.callBulkMetric('/m/x', params);
+    await api.getMetricMetadata('/m/x', params).catch(() => undefined);
+    await api.getMetricStats('/m/x', params).catch(() => undefined);
+    const urls = fetchFn.mock.calls.map((c) => c[0] as string);
+    expect(urls).toEqual([
+      `${DEFAULT_API_URL}/v1/metrics/m/x?a=BTC&a=ETH&f=json&api_key=${API_KEY}`,
+      `${DEFAULT_API_URL}/v1/metrics/m/x/bulk?a=BTC&a=ETH&f=json&api_key=${API_KEY}`,
+      `${DEFAULT_API_URL}/v1/metadata/metric?path=%2Fm%2Fx&a=BTC&a=ETH&api_key=${API_KEY}`,
+      `${DEFAULT_API_URL}/v1/metadata/metric/stats?path=%2Fm%2Fx&a=BTC&a=ETH&api_key=${API_KEY}`,
+    ]);
+  });
+
+  it('sends repeated params to the x402 endpoint without a key', async () => {
+    const fetchFn = okFetch({ data: [] });
+    const api = new GlassnodeAPI({ x402: true, fetch: fetchFn as typeof fetch });
+    await api.callBulkMetric('/market/marketcap_usd', { a: ['BTC', 'ETH'], s: 1609459200 });
+    expect(fetchFn.mock.calls[0][0]).toBe(
+      'https://x402.glassnode.com/v1/metrics/market/marketcap_usd/bulk?a=BTC&a=ETH&s=1609459200&f=json'
+    );
+  });
+
+  it('masks the key in logger output and hook URLs that carry repeated params', async () => {
+    const fetchFn = okFetch({ data: [] });
+    const logger = vi.fn();
+    const onRequest = vi.fn();
+    const api = new GlassnodeAPI({
+      apiKey: API_KEY,
+      fetch: fetchFn as typeof fetch,
+      logger,
+      hooks: { onRequest },
+    });
+    await api.callBulkMetric('/market/marketcap_usd', { a: ['BTC', 'ETH'] });
+    const hookUrl = (onRequest.mock.calls[0][0] as { url: string }).url;
+    expect(hookUrl).toMatch(/\/bulk\?a=BTC&a=ETH&f=json&api_key=/);
+    expect(hookUrl).not.toContain(API_KEY);
+    const logged = JSON.stringify(logger.mock.calls);
+    expect(logged).toContain('a=BTC&a=ETH');
+    expect(logged).not.toContain(API_KEY);
+  });
+
+  it.each<[string, unknown, RegExp]>([
+    ['an empty array', [], /must not be an empty array/],
+    ['an array containing undefined', ['BTC', undefined], /`a\[1\]` must not be undefined/],
+    [
+      'a sparse array (hole)',
+      Object.assign(['BTC'], { 2: 'ETH' }),
+      /`a\[1\]` must not be undefined/,
+    ],
+    ['an array containing null', [null, 'BTC'], /`a\[0\]` must not be null/],
+    [
+      'a nested array',
+      ['BTC', ['ETH']],
+      /`a\[1\]` must be a string, number, boolean or Date, got array/,
+    ],
+    [
+      'an array containing an object',
+      [{ v: 1 }],
+      /`a\[0\]` must be a string, number, boolean or Date, got object/,
+    ],
+    ['an array containing NaN', ['BTC', NaN], /`a\[1\]` must be a finite number/],
+    ['an array containing an invalid Date', [new Date('nope')], /`a\[0\]` is an invalid Date/],
+  ])('rejects %s before any request', async (_label, value, message) => {
+    for (const method of PATH_METHODS) {
+      const err = await rejection({ s: 1, a: value }, method);
+      expect(err.argument).toBe('params.a');
+      expect(err.message).toMatch(message);
+    }
+  });
+
+  it.each(['s', 'u', 'i', 'c'])(
+    'rejects an array for the single-valued `%s` before any request',
+    async (name) => {
+      for (const method of PATH_METHODS) {
+        const err = await rejection({ a: 'BTC', [name]: ['1', '2'] }, method);
+        expect(err.argument).toBe(`params.${name}`);
+        expect(err.message).toMatch(/takes a single value/);
+      }
+    }
+  );
+
+  it('rejects arrays for the reserved params (f, api_key, path) before any request', async () => {
+    for (const method of PATH_METHODS) {
+      const f = await rejection({ f: ['json'] }, method);
+      expect(f.argument).toBe('params.f');
+      const key = await rejection({ api_key: ['k1', 'k2'] }, method);
+      expect(key.argument).toBe('params.api_key');
+    }
+    for (const method of ['getMetricMetadata', 'getMetricStats'] as const) {
+      const path = await rejection({ path: ['/a/b', '/c/d'] }, method);
+      expect(path.argument).toBe('params.path');
+    }
+  });
+
+  it('accepts arrays at compile time for a, e and custom params (but not s, u, i, c, f)', async () => {
+    const fetchFn = okFetch({ data: [] });
+    const api = client(fetchFn);
+    // These must compile (tsc -p tsconfig.test.json type-checks this file).
+    await api.callBulkMetric('/market/marketcap_usd', { a: ['BTC', 'ETH'], s: 1609459200 });
+    await api.callBulkMetric('/m/x', { a: ['BTC'], e: ['binance', 'kraken'], network: ['a', 'b'] });
+    const assets: readonly string[] = ['BTC', 'ETH'];
+    await api.callMetric('/m/x', { a: assets, x: [1, true, new Date()] });
+    const params: MetricParams = { a: ['BTC', 'ETH'] as const };
+    expect(params.a).toHaveLength(2);
+
+    // @ts-expect-error — asset arrays hold strings
+    await api.callMetric('/m/x', { a: ['BTC', 1] }).catch(() => {});
+    // @ts-expect-error — s takes a single value
+    await api.callMetric('/m/x', { s: [1, 2] }).catch(() => {});
+    // @ts-expect-error — u takes a single value
+    await api.callMetric('/m/x', { u: [1, 2] }).catch(() => {});
+    // @ts-expect-error — i takes a single value
+    await api.callMetric('/m/x', { i: ['1h', '24h'] }).catch(() => {});
+    // @ts-expect-error — c takes a single value
+    await api.callMetric('/m/x', { c: ['usd', 'native'] }).catch(() => {});
+    // @ts-expect-error — f takes a single value
+    await api.callMetric('/m/x', { f: ['json'] }).catch(() => {});
+    // @ts-expect-error — no null elements
+    await api.callMetric('/m/x', { x: ['a', null] }).catch(() => {});
+    // @ts-expect-error — no nested arrays
+    await api.callMetric('/m/x', { x: [['a']] }).catch(() => {});
   });
 });
