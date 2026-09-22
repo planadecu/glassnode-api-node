@@ -17,6 +17,20 @@ export const X402_API_URL = 'https://x402.glassnode.com';
 // A testnet/staging x402 endpoint is not hardcoded here — pass its URL via the `apiUrl` config option.
 
 /**
+ * Largest timer delay (ms) every runtime supports: 2^31 - 1 (~24.8 days). Larger delays overflow
+ * `setTimeout` (Node fires them after 1 ms) and make `AbortSignal.timeout()` throw a RangeError.
+ */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/** A positive integer delay in ms that fits in a timer. */
+const timerMs = () =>
+  z
+    .number()
+    .int()
+    .positive()
+    .max(MAX_TIMER_MS, `must be at most ${MAX_TIMER_MS} ms (the largest timer delay)`);
+
+/**
  * Zod schema for Glassnode API configuration
  */
 export const GlassnodeConfigSchema = z
@@ -48,16 +62,16 @@ export const GlassnodeConfigSchema = z
     maxRetries: z.number().int().nonnegative().default(0),
 
     /** Base delay in milliseconds between retries (doubles each attempt, then full jitter). */
-    retryDelay: z.number().int().positive().default(1000),
+    retryDelay: timerMs().default(1000),
 
     /** Upper bound (ms) for a single retry wait, after exponential growth. */
-    maxRetryDelay: z.number().int().positive().default(30000),
+    maxRetryDelay: timerMs().default(30000),
 
     /**
      * Per-request timeout in milliseconds. When set, each attempt is aborted via
      * `AbortSignal.timeout()` after this many ms (a fresh signal per retry). Unset = no timeout.
      */
-    timeout: z.number().int().positive().optional(),
+    timeout: timerMs().optional(),
   })
   .refine((c) => c.x402 || (c.apiKey !== undefined && c.apiKey.length > 0), {
     message: 'apiKey is required unless x402 is enabled',

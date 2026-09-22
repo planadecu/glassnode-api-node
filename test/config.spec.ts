@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { GlassnodeConfigSchema, DEFAULT_API_URL, X402_API_URL } from '../src/types/config';
+import { GlassnodeAPI } from '../src/glassnode-api';
+import { GlassnodeConfigError } from '../src/errors';
 
 describe('GlassnodeConfigSchema', () => {
   it('exposes the URL constants', () => {
@@ -24,5 +26,41 @@ describe('GlassnodeConfigSchema', () => {
     const parsed = GlassnodeConfigSchema.parse({ apiKey: 'k' });
     expect(parsed.x402).toBe(false);
     expect(parsed.apiUrl).toBeUndefined();
+  });
+
+  describe('timer bounds (timeout, retryDelay, maxRetryDelay)', () => {
+    // Timers only take a 32-bit signed delay; larger values overflow (Node fires them after 1 ms)
+    // and `AbortSignal.timeout()` throws a RangeError above 2^32 - 1.
+    const MAX_TIMER_MS = 2_147_483_647;
+    const fields = ['timeout', 'retryDelay', 'maxRetryDelay'] as const;
+
+    it.each(fields)('accepts %s at the largest timer delay (2^31 - 1 ms)', (field) => {
+      const parsed = GlassnodeConfigSchema.parse({ apiKey: 'k', [field]: MAX_TIMER_MS });
+      expect(parsed[field]).toBe(MAX_TIMER_MS);
+    });
+
+    it.each(fields)('rejects %s above the largest timer delay', (field) => {
+      for (const value of [MAX_TIMER_MS + 1, 5_000_000_000]) {
+        const result = GlassnodeConfigSchema.safeParse({ apiKey: 'k', [field]: value });
+        expect(result.success).toBe(false);
+        expect(result.error?.issues[0].path).toEqual([field]);
+        expect(result.error?.issues[0].message).toMatch(/2147483647/);
+      }
+    });
+
+    it.each(fields)(
+      'surfaces an oversized %s as a GlassnodeConfigError at construction',
+      (field) => {
+        let err: unknown;
+        try {
+          new GlassnodeAPI({ apiKey: 'k', [field]: 5_000_000_000 });
+        } catch (e) {
+          err = e;
+        }
+        expect(err).toBeInstanceOf(GlassnodeConfigError);
+        expect((err as Error).message).toContain(field);
+        expect((err as Error).message).toContain('2147483647');
+      }
+    );
   });
 });

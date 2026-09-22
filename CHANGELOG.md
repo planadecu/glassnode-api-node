@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.21.3
+
+- Fixed: the config options `timeout`, `retryDelay` and `maxRetryDelay` are now capped at
+  2147483647 ms (2^31 − 1, the largest timer delay), the same as the per-call `timeout`. A larger
+  value now throws a `GlassnodeConfigError` when the client is constructed. Before, an oversized
+  `timeout` made every call throw a raw `RangeError` from `AbortSignal.timeout()`, and an oversized
+  `maxRetryDelay` let a long `Retry-After` overflow the retry timer, so the client retried after
+  about 1 ms instead of waiting.
+
 ## 0.21.2
 
 - **Security:** the API key no longer leaks into error messages. Before, a `GlassnodeApiError`
