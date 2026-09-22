@@ -6,7 +6,14 @@ import {
   DEFAULT_API_URL,
   X402_API_URL,
 } from './types/config.js';
-import { GlassnodeApiError } from './errors.js';
+import type { ZodType, ZodError } from 'zod';
+import {
+  GlassnodeError,
+  GlassnodeApiError,
+  GlassnodeConfigError,
+  GlassnodeNetworkError,
+  GlassnodeValidationError,
+} from './errors.js';
 import {
   AssetMetadataResponse,
   MetricMetadataResponse,
@@ -23,6 +30,25 @@ import {
 /** Mask the `api_key` query-param value so it never reaches logs. */
 function redactApiKey(url: string): string {
   return url.replace(/([?&]api_key=)[^&]+/gi, '$1***');
+}
+
+/** Summarise Zod issues as `path: message` pairs (first few only) for an error message. */
+function summarizeIssues(error: ZodError, max = 3): string {
+  const parts = error.issues
+    .slice(0, max)
+    .map((i) => `${i.path.length ? i.path.join('.') : '(root)'}: ${i.message}`);
+  const more = error.issues.length - parts.length;
+  return parts.join('; ') + (more > 0 ? ` (+${more} more)` : '');
+}
+
+/** Validate an API response against its schema, raising a GlassnodeValidationError on mismatch. */
+function validateResponse<T>(schema: ZodType<T>, data: unknown, endpoint: string): T {
+  const result = schema.safeParse(data);
+  if (result.success) return result.data;
+  throw new GlassnodeValidationError(
+    `Glassnode API error: response from ${endpoint} did not match the expected schema — ${summarizeIssues(result.error)}`,
+    { cause: result.error, endpoint }
+  );
 }
 
 /**
@@ -43,8 +69,15 @@ export class GlassnodeAPI {
    * @param config Configuration object
    */
   constructor(config: GlassnodeConfig) {
-    // Validate config with Zod
-    const validatedConfig = GlassnodeConfigSchema.parse(config);
+    // Validate config with Zod; surface failures as a GlassnodeConfigError (ZodError on `.cause`).
+    const parsed = GlassnodeConfigSchema.safeParse(config);
+    if (!parsed.success) {
+      throw new GlassnodeConfigError(
+        `Invalid GlassnodeAPI config: ${summarizeIssues(parsed.error, Infinity)}`,
+        { cause: parsed.error }
+      );
+    }
+    const validatedConfig = parsed.data;
 
     this.apiKey = validatedConfig.apiKey;
     this.apiUrl = validatedConfig.apiUrl ?? (validatedConfig.x402 ? X402_API_URL : DEFAULT_API_URL);
@@ -69,7 +102,7 @@ export class GlassnodeAPI {
     });
 
     const url = `${this.apiUrl}${endpoint}?${queryParams}`;
-    let lastError: Error | undefined;
+    let lastError: GlassnodeError | undefined;
     // Server-requested wait (from a Retry-After header) to use for the *next* attempt, if any.
     let retryAfterMs: number | undefined;
 
@@ -95,11 +128,20 @@ export class GlassnodeAPI {
         // Network/transport failure (including a timeout abort) — retryable.
         retryAfterMs = undefined;
         if (error instanceof Error) {
-          lastError = error;
+          // AbortSignal.timeout() rejects with a DOMException named 'TimeoutError'. Checked by
+          // name (not `instanceof DOMException`) so custom fetch implementations are covered too.
+          lastError = new GlassnodeNetworkError(`Glassnode API error: ${error.message}`, {
+            cause: error,
+            timedOut: error.name === 'TimeoutError',
+          });
           if (attempt < this.maxRetries) continue;
-          throw new Error(`Glassnode API error: ${error.message}`, { cause: error });
+          throw lastError;
         }
-        throw new Error('Unknown error occurred', { cause: error });
+        // A non-Error rejection (e.g. a string) from a custom fetch — not retried, as before.
+        throw new GlassnodeNetworkError('Unknown error occurred', {
+          cause: error,
+          timedOut: false,
+        });
       }
 
       if (!response.ok) {
@@ -119,14 +161,15 @@ export class GlassnodeAPI {
       try {
         return (await response.json()) as T;
       } catch (parseError) {
-        throw new Error('Glassnode API error: failed to parse response body as JSON', {
-          cause: parseError,
-        });
+        throw new GlassnodeValidationError(
+          'Glassnode API error: failed to parse response body as JSON',
+          { cause: parseError, endpoint }
+        );
       }
     }
 
     // Unreachable in practice (the loop always returns or throws), but keep the throw definitive.
-    throw lastError ?? new Error('Glassnode API request failed');
+    throw lastError ?? new GlassnodeError('Glassnode API request failed');
   }
 
   /**
@@ -181,9 +224,9 @@ export class GlassnodeAPI {
    * @returns Promise resolving to validated asset metadata
    */
   async getAssetMetadata(): Promise<AssetMetadataResponse> {
-    const response = await this.request<{ data: AssetMetadataResponse }>('/v1/metadata/assets');
-    // Validate response with Zod schema
-    return AssetMetadataResponseSchema.parse(response.data);
+    const endpoint = '/v1/metadata/assets';
+    const response = await this.request<{ data?: unknown }>(endpoint);
+    return validateResponse(AssetMetadataResponseSchema, response?.data, endpoint);
   }
 
   /**
@@ -196,9 +239,9 @@ export class GlassnodeAPI {
     metricPath: string,
     params: Record<string, string> = {}
   ): Promise<MetricMetadataResponse> {
-    const response = await this.request('/v1/metadata/metric', { path: metricPath, ...params });
-    // Validate response with Zod schema
-    return MetricMetadataResponseSchema.parse(response);
+    const endpoint = '/v1/metadata/metric';
+    const response = await this.request(endpoint, { path: metricPath, ...params });
+    return validateResponse(MetricMetadataResponseSchema, response, endpoint);
   }
 
   /**
@@ -212,12 +255,9 @@ export class GlassnodeAPI {
     metricPath: string,
     params: Record<string, string> = {}
   ): Promise<MetricStatsResponse> {
-    const response = await this.request('/v1/metadata/metric/stats', {
-      path: metricPath,
-      ...params,
-    });
-    // Validate response with Zod schema
-    return MetricStatsResponseSchema.parse(response);
+    const endpoint = '/v1/metadata/metric/stats';
+    const response = await this.request(endpoint, { path: metricPath, ...params });
+    return validateResponse(MetricStatsResponseSchema, response, endpoint);
   }
 
   /**
@@ -225,9 +265,9 @@ export class GlassnodeAPI {
    * @returns Promise resolving to validated metric metadata
    */
   async getMetricList(): Promise<MetricListResponse> {
-    const response = await this.request('/v1/metadata/metrics');
-    // Validate response with Zod schema
-    return MetricListResponseSchema.parse(response);
+    const endpoint = '/v1/metadata/metrics';
+    const response = await this.request(endpoint);
+    return validateResponse(MetricListResponseSchema, response, endpoint);
   }
 
   /**
@@ -251,10 +291,8 @@ export class GlassnodeAPI {
     metricPath: string,
     params: Record<string, string> = {}
   ): Promise<BulkResponse> {
-    const response = await this.request<{ data: BulkResponse }>(
-      '/v1/metrics' + metricPath + '/bulk',
-      { ...params, f: 'json' }
-    );
-    return BulkResponseSchema.parse(response.data);
+    const endpoint = '/v1/metrics' + metricPath + '/bulk';
+    const response = await this.request<{ data?: unknown }>(endpoint, { ...params, f: 'json' });
+    return validateResponse(BulkResponseSchema, response?.data, endpoint);
   }
 }

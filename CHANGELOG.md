@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.13.0
+
+- **One error hierarchy for every failure.** All errors thrown by `GlassnodeAPI` now extend a new
+  exported base class, `GlassnodeError`, so callers can catch one type and branch on subclasses
+  instead of matching message text. New exports: `GlassnodeError`, `GlassnodeNetworkError`,
+  `GlassnodeValidationError`, `GlassnodeConfigError`.
+  - HTTP error status → `GlassnodeApiError` (now `extends GlassnodeError`). Unchanged otherwise:
+    same constructor, `status` / `statusText` / `detail` / `isRetryable`, and message format.
+  - Network failure or timeout → `GlassnodeNetworkError` (was a plain `Error`). Same message
+    (`Glassnode API error: <msg>`), original error still on `.cause`, plus `timedOut: boolean`:
+    `true` when the per-request `timeout` fired (`AbortSignal.timeout()` rejects with a
+    `TimeoutError`). A non-`Error` rejection from a custom `fetch` is also a
+    `GlassnodeNetworkError` (message `Unknown error occurred`).
+  - Response that fails schema validation → `GlassnodeValidationError` (was a raw `ZodError`). The
+    `ZodError` is on `.cause`, the failing API path on `.endpoint` (e.g. `/v1/metadata/assets`;
+    never includes the query string or API key), and the message names the endpoint and the first
+    few issues.
+  - `200` body that is not valid JSON → `GlassnodeValidationError` (was a plain `Error`), same
+    message, parse error on `.cause`, with `.endpoint`.
+  - Invalid constructor config → `GlassnodeConfigError` (was a raw `ZodError`). The `ZodError` is
+    on `.cause`; the message lists every invalid field
+    (`Invalid GlassnodeAPI config: apiKey: API key is required; ...`).
+- Retry behaviour is unchanged: 429/5xx and network errors are retried; validation and JSON-parse
+  errors never are.
+- **Observable changes for existing callers:** code that did `err instanceof ZodError` (or read
+  `err.issues`) for invalid responses or an invalid config must now check
+  `GlassnodeValidationError` / `GlassnodeConfigError` and use `err.cause` (the same `ZodError`).
+  Code that checked `err.name === 'Error'` or `err.constructor === Error` for network or JSON
+  failures now sees the new subclasses (they still extend `Error`; messages are unchanged). The
+  config error message text also changed (Zod's JSON-formatted issue list is replaced by the
+  summary above). `GlassnodeConfigSchema.parse()` itself still throws `ZodError`. Released as a
+  minor bump under 0.x, consistent with previous 0.x releases.
+- README: new "Error types" table in the error-handling section.
+
 ## 0.12.1
 
 - **CI now actually type-checks the test files.** `tsconfig.test.json` inherited

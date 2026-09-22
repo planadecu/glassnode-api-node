@@ -25,7 +25,7 @@ const btcPrice = await api.callMetric('/market/price_usd_close', { a: 'BTC' });
 - 🌐 **Universal** — works in Node.js and the browser (UMD + ESM bundles, tree-shakeable)
 - 🔁 **Built-in retries** — automatic retry with exponential backoff for `429` and `5xx`
 - 📦 **Bulk endpoints** — fetch every asset in a single call with `callBulkMetric()`
-- 🎯 **Typed errors** — `GlassnodeApiError` with `status`, `statusText`, and `isRetryable`
+- 🎯 **Typed errors** — every failure is a `GlassnodeError`; subclasses for HTTP, network/timeout, validation and config errors
 - 🪶 **Lightweight** — a single runtime dependency (`zod`)
 - 🔌 **Pluggable** — inject a custom `fetch` implementation and a `logger`
 
@@ -105,7 +105,7 @@ const data = await api.callMetric('/market/price_usd_close', {
 | `maxRetryDelay` | `number`                                     | `30000`                     | Upper bound in ms for a single retry wait                                                |
 | `timeout`    | `number`                                        | — (no timeout)              | Per-request timeout in ms; each attempt aborts via `AbortSignal.timeout()`               |
 
-The config is validated at construction time with Zod — an invalid config (e.g. an empty `apiKey`) throws immediately. When `x402` is enabled, `apiKey` is optional but a payment-capable `fetch` is required. Failed requests throw a `GlassnodeApiError` whose message includes the server's error detail (also on `.detail`).
+The config is validated at construction time — an invalid config (e.g. an empty `apiKey`) throws a `GlassnodeConfigError` immediately. When `x402` is enabled, `apiKey` is optional but a payment-capable `fetch` is required. Failed requests throw a `GlassnodeApiError` whose message includes the server's error detail (also on `.detail`).
 
 ## Methods
 
@@ -122,11 +122,28 @@ All response types are exported and fully typed.
 
 ## Error Handling
 
-Failed requests throw a `GlassnodeApiError` with the HTTP status, the status text, and a human-readable
-message. Network failures are re-thrown as an `Error` with the original error preserved on `.cause`.
+Every error the client throws is an instance of `GlassnodeError`, so a single `instanceof` check
+catches all of them. Branch on the subclasses to tell the kinds of failure apart — no message
+matching needed.
+
+### Error types
+
+| Class                      | Thrown when                                                                                                         | Useful properties                                                                       |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `GlassnodeError`           | Base class of all the errors below — catch this to handle any library failure                                       | `message`, `cause`                                                                      |
+| `GlassnodeApiError`        | The API answered with a non-2xx HTTP status (e.g. `401`, `404`, `429`, `5xx`)                                       | `status`, `statusText`, `detail` (server message), `isRetryable` (429 / 5xx)            |
+| `GlassnodeNetworkError`    | No HTTP response: connection/DNS failure, abort, or the per-request `timeout` firing. Retried when `maxRetries` > 0 | `timedOut` (`true` when `timeout` fired), `cause` (the original fetch error)            |
+| `GlassnodeValidationError` | A `2xx` response was unusable: the body was not valid JSON, or did not match the expected schema. Never retried     | `endpoint` (API path, e.g. `/v1/metadata/assets`), `cause` (`ZodError` / `SyntaxError`) |
+| `GlassnodeConfigError`     | The options passed to `new GlassnodeAPI(...)` are invalid (e.g. empty `apiKey`, `x402` without `fetch`)             | `message` (lists the invalid fields), `cause` (`ZodError`)                              |
 
 ```typescript
-import { GlassnodeAPI, GlassnodeApiError } from 'glassnode-api';
+import {
+  GlassnodeAPI,
+  GlassnodeError,
+  GlassnodeApiError,
+  GlassnodeNetworkError,
+  GlassnodeValidationError,
+} from 'glassnode-api';
 
 try {
   await api.callMetric('/market/price_usd_close', { a: 'BTC' });
@@ -136,6 +153,12 @@ try {
     console.error(err.statusText); // e.g. "Unauthorized"
     console.error(err.isRetryable); // true for 429 / 5xx
     console.error(err.message); // "API request failed (401): Invalid or missing API key"
+  } else if (err instanceof GlassnodeNetworkError) {
+    console.error(err.timedOut ? 'request timed out' : 'network failure', err.cause);
+  } else if (err instanceof GlassnodeValidationError) {
+    console.error(`unexpected response from ${err.endpoint}`, err.cause);
+  } else if (err instanceof GlassnodeError) {
+    // any other library error
   }
 }
 ```
