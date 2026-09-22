@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.1
+
+- **Deprecated:** `MetricTierSchema` / `MetricTier` and `MetricDataTypeSchema` / `MetricDataType`
+  are now marked `@deprecated` and will be removed in the next major release (1.0). No schema or
+  client method uses them, and `MetricTier` does not match the API: `MetricMetadata.tier` is a
+  number (e.g. `2`), not a `'free' | 'tierN'` string. Use `MetricMetadata['tier']` to type it
+  instead. No runtime change.
+
 ## 0.14.0
 
 - **Invalid input is rejected before any request is sent.** New exported error class
