@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.19.0
+
+- **Fixed a money-safety bug.** In x402 mode with `maxRetries` > 0, a transport failure
+  (connection reset, or the `timeout` abort) of the **paid** request was retried as a
+  `GlassnodeNetworkError`. Each retry signed and sent a new payment with a fresh nonce, so one
+  call could be charged more than once. Once a request carrying a signed payment
+  (`PAYMENT-SIGNATURE` / `X-PAYMENT`) has been sent, a failure is now never retried.
+- `GlassnodePaymentError` gains `paymentMayHaveSettled` and `timedOut`. A transport failure of the
+  paid request now raises a `GlassnodePaymentError` with `paymentMayHaveSettled: true`, the
+  original transport error on `.cause`, and `timedOut` set when the `timeout` fired. Check on-chain
+  before retrying such a call. Payment failures before anything was sent have
+  `paymentMayHaveSettled: false`.
+- Transport failures of the unpaid first request (before any payment is signed) are still
+  retryable `GlassnodeNetworkError`s.
+- **Observable for callers:** with x402, a failed paid request used to be a retried
+  `GlassnodeNetworkError`; it is now a non-retried `GlassnodePaymentError`. Non-x402 use is
+  unaffected.
+- README: the x402 "Errors" section calls out the never-pay-twice behavior and shows how to handle
+  `paymentMayHaveSettled`.
+
 ## 0.18.0
 
 - **New:** query parameters accept `string | number | boolean | Date` values, not only strings,

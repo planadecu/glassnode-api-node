@@ -106,20 +106,45 @@ export class GlassnodeInputError extends GlassnodeError {
 }
 
 /**
- * An x402 paid request could not be paid for: the payment layer (`@x402/fetch`) rejected before
- * the paid request was sent — e.g. every payment requirement the server offered was above
- * `maxPaymentPerCall` (or x402's own spend controls), the signer failed, or the server's `402`
- * carried no usable payment requirements. The original error is on `.cause`. Never retried: the
- * same request would fail the same way, and retrying payment flows risks paying twice.
+ * An x402 paid call failed in the payment layer. Only raised by a fetch built with
+ * `createX402Fetch` (from `glassnode-api/x402`), and **never retried** by the client. Two cases,
+ * told apart by {@link GlassnodePaymentError.paymentMayHaveSettled}:
  *
- * Only raised by a fetch built with `createX402Fetch` (from `glassnode-api/x402`). A transport
- * failure of the underlying fetch stays a {@link GlassnodeNetworkError}; a `402` response that
+ * - `false` — nothing was paid: the payment layer (`@x402/fetch`) failed before a paid request was
+ *   sent, e.g. every payment requirement the server offered was above `maxPaymentPerCall` (or
+ *   x402's own spend controls), the signer failed, or the server's `402` carried no usable payment
+ *   requirements. The same request would fail the same way.
+ * - `true` — a request carrying a signed payment was sent, and the call then failed without a
+ *   usable response, typically a transport failure (connection reset, or the `timeout` abort)
+ *   of the paid request. The server may already have received the payment and settled it
+ *   on-chain, so a retry would sign a **new** payment and could charge twice. Check the payer's
+ *   on-chain transfers before retrying. The original transport error is on `.cause`, and
+ *   {@link GlassnodePaymentError.timedOut} says whether it was the per-request `timeout`.
+ *
+ * The original error is on `.cause`. A transport failure of the *unpaid* request (before any
+ * payment was signed) stays a retryable {@link GlassnodeNetworkError}; a `402` response that
  * reaches the client (e.g. the payment was refused by the server) stays a
  * {@link GlassnodeApiError} with `status` 402.
  */
 export class GlassnodePaymentError extends GlassnodeError {
-  constructor(message: string, options?: { cause?: unknown }) {
-    super(message, options);
+  /**
+   * True when a signed payment had already been sent to the server when the call failed, so the
+   * payment may have settled even though no response was received. Do not blindly retry.
+   */
+  readonly paymentMayHaveSettled: boolean;
+  /**
+   * True when the failure was the per-request `timeout` (an `AbortSignal.timeout()` abort) firing
+   * on the paid request. Always false when `paymentMayHaveSettled` is false.
+   */
+  readonly timedOut: boolean;
+
+  constructor(
+    message: string,
+    options?: { cause?: unknown; paymentMayHaveSettled?: boolean; timedOut?: boolean }
+  ) {
+    super(message, { cause: options?.cause });
     this.name = 'GlassnodePaymentError';
+    this.paymentMayHaveSettled = options?.paymentMayHaveSettled ?? false;
+    this.timedOut = options?.timedOut ?? false;
   }
 }

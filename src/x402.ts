@@ -68,13 +68,20 @@ export function createMaxAmountPolicy(maxAtomic: bigint) {
  * - Invalid `maxPaymentPerCall` → rejects with `GlassnodeInputError` (`argument: 'maxPaymentPerCall'`).
  * - Optional peer deps not installed → rejects with `GlassnodeConfigError` (import error on `.cause`).
  *
- * The returned fetch rejects with a `GlassnodePaymentError` when the payment layer fails before a
- * paid response is obtained — e.g. the server's price is above `maxPaymentPerCall`, the signer
- * throws, or the `402` carries no usable payment requirements. `GlassnodeAPI` surfaces it as-is
- * and never retries it. A rejection of the underlying `fetch` itself (connection failure, timeout
- * abort) is passed through unchanged, so the client still reports and retries it as a
- * `GlassnodeNetworkError`. A `402` the server returns after payment is not an error here; the
- * client reports it as `GlassnodeApiError` (status 402).
+ * The returned fetch rejects with a `GlassnodePaymentError` (surfaced as-is and never retried by
+ * `GlassnodeAPI`) when:
+ * - the payment layer fails before a paid request is sent — e.g. the server's price is above
+ *   `maxPaymentPerCall`, the signer throws, or the `402` carries no usable payment requirements
+ *   (`paymentMayHaveSettled: false`: nothing was paid);
+ * - the call fails **after** a request carrying a signed payment was sent — typically a transport
+ *   failure (connection reset, `timeout` abort) of the paid request (`paymentMayHaveSettled:
+ *   true`, the transport error on `.cause`, `timedOut` set for a timeout). The server may already
+ *   have settled that payment and a retry would sign a new one, so it is never retried.
+ *
+ * A rejection of the underlying `fetch` for the *unpaid* request (no payment signed yet) is passed
+ * through unchanged, so the client still reports and retries it as a `GlassnodeNetworkError`. A
+ * `402` the server returns after payment is not an error here; the client reports it as
+ * `GlassnodeApiError` (status 402).
  */
 export async function createX402Fetch(options: X402FetchOptions): Promise<typeof fetch> {
   const {
@@ -111,12 +118,19 @@ export async function createX402Fetch(options: X402FetchOptions): Promise<typeof
   const paymentClient = client;
 
   return async (input, init) => {
-    // Track rejections of the *base* fetch for this call, so they can be told apart from failures
-    // raised by the payment layer (which @x402/fetch throws as plain `Error`s, without a cause).
-    // The wrapper is built per call so concurrent calls never share this state; it is cheap
-    // (@x402/fetch only constructs a thin x402HTTPClient around the shared client).
+    // Per-call state (the wrapper is built per call so concurrent calls never share it; it is
+    // cheap — @x402/fetch only constructs a thin x402HTTPClient around the shared client):
+    // - `baseFailure`: a rejection of the *base* fetch, so it can be told apart from failures
+    //   raised by the payment layer (which @x402/fetch throws as plain `Error`s, without a cause).
+    // - `paymentSent`: whether any request handed to the base fetch carried a signed payment.
+    //   Once one did, the payment may settle server-side even if no response ever arrives, so a
+    //   later failure must not look retryable: a retry would sign a *new* payment (fresh nonce)
+    //   and could charge twice. Detected from the outgoing request itself, so it also covers
+    //   @x402/fetch's internal "recovered" re-payment path.
     let baseFailure: { error: unknown } | undefined;
+    let paymentSent = false;
     const trackedBaseFetch: typeof fetch = async (...args) => {
+      if (carriesPayment(args[0], args[1])) paymentSent = true;
       try {
         return await baseFetch(...args);
       } catch (error) {
@@ -128,11 +142,58 @@ export async function createX402Fetch(options: X402FetchOptions): Promise<typeof
     try {
       return await paidFetch(input, init);
     } catch (error) {
-      // A transport failure of the base fetch: pass it through untouched (network error, retryable).
-      if (baseFailure && baseFailure.error === error) throw error;
-      throw toPaymentError(error);
+      if (baseFailure && baseFailure.error === error) {
+        // Transport failure before any payment was sent: pass it through untouched (the client
+        // reports it as a retryable GlassnodeNetworkError).
+        if (!paymentSent) throw error;
+        // Transport failure after a payment was sent: the payment may have settled; never retry.
+        throw toPaidTransportError(error);
+      }
+      throw toPaymentError(error, paymentSent);
     }
   };
+}
+
+/** Request headers that carry a signed x402 payment (protocol v2 and v1 respectively). */
+const PAYMENT_HEADERS = ['PAYMENT-SIGNATURE', 'X-PAYMENT'];
+
+/** Whether a base-fetch call carries an x402 payment header, in its `Request` or its `init`. */
+function carriesPayment(input: unknown, init: RequestInit | undefined): boolean {
+  const has = (headers: HeadersInit | undefined): boolean => {
+    if (!headers) return false;
+    const h = new Headers(headers);
+    return PAYMENT_HEADERS.some((name) => h.has(name));
+  };
+  // Duck-typed rather than `instanceof Request`, so a Request from another realm still counts.
+  const requestHeaders =
+    typeof input === 'object' && input !== null && 'headers' in input
+      ? (input as { headers?: HeadersInit }).headers
+      : undefined;
+  return has(requestHeaders) || has(init?.headers);
+}
+
+/**
+ * Wrap a transport failure of a request that carried a signed payment. The payment may have
+ * settled, so it becomes a `GlassnodePaymentError` (never retried) with `paymentMayHaveSettled`,
+ * the transport error on `.cause`, and `timedOut` set when it was the `AbortSignal.timeout()` abort.
+ */
+function toPaidTransportError(error: unknown): GlassnodePaymentError {
+  const { name, message } =
+    typeof error === 'object' && error !== null
+      ? (error as { name?: unknown; message?: unknown })
+      : { name: undefined, message: undefined };
+  const detail =
+    typeof message === 'string' && message
+      ? redactApiKey(message)
+      : typeof error === 'string' && error
+        ? redactApiKey(error)
+        : typeof name === 'string' && name
+          ? name
+          : 'unknown error';
+  return new GlassnodePaymentError(
+    `x402 paid request failed after the payment was sent (${detail}) — the payment may have settled; not retried to avoid paying twice`,
+    { cause: error, paymentMayHaveSettled: true, timedOut: name === 'TimeoutError' }
+  );
 }
 
 /**
@@ -141,11 +202,15 @@ export async function createX402Fetch(options: X402FetchOptions): Promise<typeof
  * own messages carry no key or signature material (a signer's error text is included verbatim);
  * the raw error stays on `.cause`.
  */
-function toPaymentError(error: unknown): GlassnodePaymentError {
+function toPaymentError(error: unknown, paymentSent: boolean): GlassnodePaymentError {
   const detail =
     error instanceof Error && error.message ? redactApiKey(error.message) : 'unknown error';
   const hint = /filtered out by policies/.test(detail)
     ? ' (the price exceeds maxPaymentPerCall)'
     : '';
-  return new GlassnodePaymentError(`x402 payment failed: ${detail}${hint}`, { cause: error });
+  const sent = paymentSent ? ' (a payment was already sent and may have settled)' : '';
+  return new GlassnodePaymentError(`x402 payment failed: ${detail}${hint}${sent}`, {
+    cause: error,
+    paymentMayHaveSettled: paymentSent,
+  });
 }
