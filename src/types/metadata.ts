@@ -1,5 +1,9 @@
 /**
  * Metadata response types
+ *
+ * Timestamps: the API sends every time value as unix **seconds** (a number). The schemas
+ * pass them through unchanged — with one exception, `MetricMetadata.modified`, which is
+ * converted to a JS `Date`. Convert the others yourself with `new Date(seconds * 1000)`.
  */
 import { z } from 'zod';
 
@@ -185,7 +189,12 @@ export const MetricMetadataSchema = z.object({
   tier: z.number().int().nonnegative(),
 
   /**
-   * The last date that the metadata was updated
+   * When the metric's metadata was last updated, as a JS `Date`.
+   *
+   * The API sends unix seconds; the schema converts them to a `Date` (the only time field
+   * that is converted — see `timerange` and the time series/bulk `t`, which stay numbers).
+   * `undefined` when the field is absent **or `0`**: `0` is treated as "no modification time
+   * recorded", not as 1970-01-01.
    */
   modified: z
     .number()
@@ -203,11 +212,18 @@ export const MetricMetadataSchema = z.object({
   bulk_supported: z.boolean().optional(),
 
   /**
-   * Available time range for this metric (Unix timestamps)
+   * Available time range for this metric. Both bounds are unix timestamps in **seconds**
+   * (numbers, not `Date`s) — convert with `new Date(min * 1000)`.
    */
   timerange: z
     .object({
+      /**
+       * Earliest available data point, in unix seconds (number)
+       */
       min: z.number(),
+      /**
+       * Latest available data point, in unix seconds (number)
+       */
       max: z.number(),
     })
     .optional(),
@@ -344,6 +360,10 @@ export type BulkEntry = z.infer<typeof BulkEntrySchema>;
  */
 export const BulkResponseSchema = z.array(
   z.object({
+    /**
+     * Timestamp of this entry, in unix seconds (number, not a `Date`) — convert with
+     * `new Date(t * 1000)`
+     */
     t: z.number(),
     bulk: z.array(BulkEntrySchema),
   })

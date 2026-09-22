@@ -35,6 +35,7 @@ const btcPrice = await api.callMetric('/market/price_usd_close', { a: 'BTC' });
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
 - [Methods](#methods)
+- [Timestamps](#timestamps)
 - [Error Handling](#error-handling)
 - [Retries](#retries)
 - [Bulk Metrics](#bulk-metrics)
@@ -132,6 +133,26 @@ Arguments are checked before any request is sent; invalid input rejects with a
   `apiKey` in the config), `f` is rejected unless it is `json` in `callMetric`/`callBulkMetric`
   (the client only parses JSON), and `path` is rejected in `getMetricMetadata`/`getMetricStats`
   (it comes from the `path` argument).
+
+## Timestamps
+
+The API sends every time value as unix **seconds**, and the client passes them through as plain
+`number`s — with **one exception**, `MetricMetadata.modified`, which is converted to a `Date`:
+
+| Field                                                  | Type                 |
+| ------------------------------------------------------ | -------------------- |
+| `MetricMetadata.modified`                              | `Date \| undefined`  |
+| `MetricMetadata.timerange.min` / `.max`                | `number` (unix secs) |
+| `BulkResponse[number].t`                               | `number` (unix secs) |
+| `t` in `callMetric()` results (raw JSON, typed by you) | `number` (unix secs) |
+
+`modified` is `undefined` when the API omits it **or sends `0`** (treated as "not recorded", not as
+1970-01-01). Convert any unix-second value with `new Date(t * 1000)`:
+
+```typescript
+const [latest] = (await api.callBulkMetric('/market/marketcap_usd')).slice(-1);
+const when = new Date(latest.t * 1000);
+```
 
 ## Error Handling
 

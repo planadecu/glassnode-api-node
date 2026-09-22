@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.4
+
+- Documented how timestamps are represented in responses. `MetricMetadata.modified` is the only
+  field converted to a `Date`; `MetricMetadata.timerange.min`/`max`, bulk `t` and `callMetric()`
+  time-series `t` stay unix seconds as `number`s. Added JSDoc to every time field and a
+  "Timestamps" section to the README, including how to convert (`new Date(t * 1000)`).
+- Documented and tested that `modified` is `undefined` when the API omits it or sends `0` (`0`
+  means "not recorded", not 1970-01-01). No behavior change.
+
 ## 0.14.3
 
 - **Fix:** transport failures are classified by the rejection's shape, not `instanceof Error`. A
