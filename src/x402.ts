@@ -1,4 +1,10 @@
-import { GlassnodeConfigError, GlassnodeInputError, GlassnodePaymentError } from './errors.js';
+import { readErrorDetail } from './error-detail.js';
+import {
+  GlassnodeApiError,
+  GlassnodeConfigError,
+  GlassnodeInputError,
+  GlassnodePaymentError,
+} from './errors.js';
 import { redactApiKey } from './redact.js';
 
 /**
@@ -73,15 +79,18 @@ export function createMaxAmountPolicy(maxAtomic: bigint) {
  * - the payment layer fails before a paid request is sent — e.g. the server's price is above
  *   `maxPaymentPerCall`, the signer throws, or the `402` carries no usable payment requirements
  *   (`paymentMayHaveSettled: false`: nothing was paid);
- * - the call fails **after** a request carrying a signed payment was sent — typically a transport
- *   failure (connection reset, `timeout` abort) of the paid request (`paymentMayHaveSettled:
- *   true`, the transport error on `.cause`, `timedOut` set for a timeout). The server may already
- *   have settled that payment and a retry would sign a new one, so it is never retried.
+ * - the call fails **after** a request carrying a signed payment was sent (`paymentMayHaveSettled:
+ *   true`). The server may already have settled that payment and a retry would sign a new one,
+ *   so it is never retried. Either the paid request failed in transit (connection reset,
+ *   `timeout` abort: the transport error on `.cause`, `timedOut` set for a timeout), or it was
+ *   answered with a non-2xx status other than `402` — e.g. a proxy `502`/`504` after the origin
+ *   settled, a `429`, a `400` — (`status` set, the equivalent `GlassnodeApiError` on `.cause`).
  *
- * A rejection of the underlying `fetch` for the *unpaid* request (no payment signed yet) is passed
- * through unchanged, so the client still reports and retries it as a `GlassnodeNetworkError`. A
- * `402` the server returns after payment is not an error here; the client reports it as
- * `GlassnodeApiError` (status 402).
+ * A rejection of, or a non-2xx answer to, the *unpaid* request (no payment signed yet) is passed
+ * through unchanged, so the client still reports and retries it (`GlassnodeNetworkError`, or
+ * `GlassnodeApiError` for `429`/`5xx`). A `402` the server returns to the paid request (it
+ * refused the payment) is not an error here either; the client reports it as `GlassnodeApiError`
+ * (status 402), which it never retries.
  */
 export async function createX402Fetch(options: X402FetchOptions): Promise<typeof fetch> {
   const {
@@ -139,8 +148,9 @@ export async function createX402Fetch(options: X402FetchOptions): Promise<typeof
       }
     };
     const paidFetch = wrapFetchWithPayment(trackedBaseFetch, paymentClient) as typeof fetch;
+    let response: Response;
     try {
-      return await paidFetch(input, init);
+      response = await paidFetch(input, init);
     } catch (error) {
       if (baseFailure && baseFailure.error === error) {
         // Transport failure before any payment was sent: pass it through untouched (the client
@@ -151,6 +161,14 @@ export async function createX402Fetch(options: X402FetchOptions): Promise<typeof
       }
       throw toPaymentError(error, paymentSent);
     }
+    // A non-2xx answer once a payment was sent: never hand it back as a plain response, or the
+    // client would retry a 429/5xx and sign a new payment. `402` is the exception — the x402
+    // "payment refused" answer — so it passes through and the client reports it as a
+    // (never-retried) GlassnodeApiError(402).
+    if (paymentSent && !response.ok && response.status !== 402) {
+      throw await toPaidHttpError(response);
+    }
+    return response;
   };
 }
 
@@ -193,6 +211,23 @@ function toPaidTransportError(error: unknown): GlassnodePaymentError {
   return new GlassnodePaymentError(
     `x402 paid request failed after the payment was sent (${detail}) — the payment may have settled; not retried to avoid paying twice`,
     { cause: error, paymentMayHaveSettled: true, timedOut: name === 'TimeoutError' }
+  );
+}
+
+/**
+ * Turn a non-2xx response to a request that carried a signed payment into a `GlassnodePaymentError`
+ * (never retried) with `paymentMayHaveSettled`, the `status`, and the equivalent
+ * `GlassnodeApiError` (status, statusText, server detail) on `.cause`. The detail is the response
+ * body's message with any `api_key` query value redacted; no request header (signature) is used.
+ */
+async function toPaidHttpError(response: Response): Promise<GlassnodePaymentError> {
+  const rawDetail = await readErrorDetail(response);
+  const detail = rawDetail ? redactApiKey(rawDetail) : undefined;
+  const apiError = new GlassnodeApiError(response.status, response.statusText, detail);
+  const label = [response.statusText, detail].filter(Boolean).join(' — ');
+  return new GlassnodePaymentError(
+    `x402 paid request failed with HTTP ${response.status}${label ? ` (${label})` : ''} after the payment was sent — the payment may have settled; not retried to avoid paying twice`,
+    { cause: apiError, paymentMayHaveSettled: true, status: response.status }
   );
 }
 

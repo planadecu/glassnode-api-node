@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.20.0
+
+- **Fixed a money-safety bug.** In x402 mode with `maxRetries` > 0, a `429` or `5xx` answer to the
+  **paid** request was retried like any other retryable status. Each retry re-ran the payment flow
+  and signed a new payment (fresh nonce). A gateway `502`/`504` sent after the origin had already
+  settled, or a server that settles and then errors, could therefore charge one call more than
+  once. Once a request carrying a signed payment has been sent, the call is now never retried,
+  whatever the HTTP status.
+- A non-2xx answer to the paid request, other than `402`, now raises a `GlassnodePaymentError`
+  with `paymentMayHaveSettled: true`. This covers `5xx`, `429` and other `4xx` such as `400`: whether
+  a payment settles before the handler runs depends on the server and any proxy, which the client
+  cannot see. The equivalent `GlassnodeApiError` (`status`, `statusText`, server `detail`, with
+  `api_key` values redacted) is on `.cause`.
+- **New:** `GlassnodePaymentError.status` holds the HTTP status of the paid response when that
+  response caused the failure. It is `undefined` for payment-layer and transport failures.
+- Unchanged: a `402` answer to the paid request (the server refused the payment) is still a
+  `GlassnodeApiError` with `status` 402, and it is not retried. A `429`/`5xx` or transport failure
+  of the unpaid first request is still retried as before: no payment has been signed at that point.
+- **Observable for callers:** with x402, a paid request answered with a non-2xx status other than
+  `402` used to surface as a `GlassnodeApiError`, and `429`/`5xx` were retried first. It now raises a
+  non-retried `GlassnodePaymentError`; the `GlassnodeApiError` is on `.cause`. Code that
+  checked `err instanceof GlassnodeApiError && err.status === …` for such responses must check
+  `GlassnodePaymentError` (`err.status`) instead. The fetch returned by `createX402Fetch()` now
+  rejects in this case instead of resolving with the error response. Non-x402 use is unaffected.
+  Minor bump: a new property, and changed error classification in x402 mode (0.x).
+- README: the x402 "Errors" section and the error table cover HTTP errors after payment.
+
 ## 0.19.0
 
 - **Fixed a money-safety bug.** In x402 mode with `maxRetries` > 0, a transport failure

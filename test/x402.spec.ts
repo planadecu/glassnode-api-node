@@ -201,6 +201,7 @@ describe('createX402Fetch', () => {
     expect(err).toBeInstanceOf(GlassnodePaymentError);
     expect(err.paymentMayHaveSettled).toBe(false);
     expect(err.timedOut).toBe(false);
+    expect(err.status).toBeUndefined();
   });
 });
 
@@ -234,6 +235,7 @@ describe('createX402Fetch — never pays twice for one call', () => {
     expect(e.timedOut).toBe(false);
     expect(e.cause).toBe(cause);
     expect(e.message).toMatch(/may have settled/);
+    expect(e.status).toBeUndefined();
     expect(e.message).toMatch(/fetch failed/);
     // Exactly one payment signed and one paid request sent; the call was not retried.
     expect(signTypedData).toHaveBeenCalledTimes(1);
@@ -400,5 +402,213 @@ describe('createX402Fetch — never pays twice for one call', () => {
     )) as Error;
     expect(err).toBeInstanceOf(GlassnodePaymentError);
     expect(err.message).not.toContain('ab'.repeat(65));
+  });
+});
+
+describe('createX402Fetch — an HTTP error after payment is never retried', () => {
+  /** A base fetch whose probe answers `probe()` and whose paid request answers `paid()`. */
+  function scripted(paid: () => Response, probe: () => Response = () => response402()) {
+    return vi.fn(async (input: RequestInfo | URL) => (isPaidCall([input]) ? paid() : probe()));
+  }
+
+  it('paid request -> 502: GlassnodePaymentError with status, one payment, not retried', async () => {
+    const baseFetch = scripted(
+      () =>
+        new Response(JSON.stringify({ message: 'upstream timed out' }), {
+          status: 502,
+          statusText: 'Bad Gateway',
+        })
+    );
+    const signTypedData = vi.fn(async (): Promise<`0x${string}`> => FAKE_SIGNATURE);
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(signTypedData),
+      fetch: baseFetch as typeof fetch,
+    });
+    const err = await caught(paidApi(paidFetch, { maxRetries: 2 }).getMetricList());
+
+    expect(err).toBeInstanceOf(GlassnodePaymentError);
+    expect(err).not.toBeInstanceOf(GlassnodeApiError);
+    const e = err as GlassnodePaymentError;
+    expect(e.paymentMayHaveSettled).toBe(true);
+    expect(e.timedOut).toBe(false);
+    expect(e.status).toBe(502);
+    expect(e.message).toMatch(/502/);
+    expect(e.message).toMatch(/upstream timed out/);
+    expect(e.message).toMatch(/may have settled/);
+    // The HTTP failure is kept on .cause as the GlassnodeApiError the client would have raised.
+    expect(e.cause).toBeInstanceOf(GlassnodeApiError);
+    const cause = e.cause as GlassnodeApiError;
+    expect(cause.status).toBe(502);
+    expect(cause.statusText).toBe('Bad Gateway');
+    expect(cause.detail).toBe('upstream timed out');
+    expect(e.message).not.toContain('ab'.repeat(65));
+    // Exactly one payment signed and one paid request sent; the call was not retried.
+    expect(signTypedData).toHaveBeenCalledTimes(1);
+    expect(baseFetch.mock.calls.filter(isPaidCall)).toHaveLength(1);
+    expect(baseFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('paid request -> 429 with Retry-After: not retried', async () => {
+    const baseFetch = scripted(
+      () =>
+        new Response('', {
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: { 'Retry-After': '0' },
+        })
+    );
+    const signTypedData = vi.fn(async (): Promise<`0x${string}`> => FAKE_SIGNATURE);
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(signTypedData),
+      fetch: baseFetch as typeof fetch,
+    });
+    const err = (await caught(
+      paidApi(paidFetch, { maxRetries: 2 }).getMetricList()
+    )) as GlassnodePaymentError;
+
+    expect(err).toBeInstanceOf(GlassnodePaymentError);
+    expect(err.paymentMayHaveSettled).toBe(true);
+    expect(err.status).toBe(429);
+    expect((err.cause as GlassnodeApiError).status).toBe(429);
+    expect(signTypedData).toHaveBeenCalledTimes(1);
+    expect(baseFetch.mock.calls.filter(isPaidCall)).toHaveLength(1);
+    expect(baseFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('paid request -> 400: GlassnodePaymentError (a signed payment was sent), not retried', async () => {
+    const baseFetch = scripted(
+      () =>
+        new Response(JSON.stringify({ message: 'Resolution 1h is not allowed' }), {
+          status: 400,
+          statusText: 'Bad Request',
+        })
+    );
+    const signTypedData = vi.fn(async (): Promise<`0x${string}`> => FAKE_SIGNATURE);
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(signTypedData),
+      fetch: baseFetch as typeof fetch,
+    });
+    const err = (await caught(
+      paidApi(paidFetch, { maxRetries: 2 }).getMetricList()
+    )) as GlassnodePaymentError;
+
+    expect(err).toBeInstanceOf(GlassnodePaymentError);
+    expect(err.paymentMayHaveSettled).toBe(true);
+    expect(err.status).toBe(400);
+    expect(err.message).toMatch(/Resolution 1h is not allowed/);
+    expect((err.cause as GlassnodeApiError).detail).toBe('Resolution 1h is not allowed');
+    expect(signTypedData).toHaveBeenCalledTimes(1);
+    expect(baseFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('redacts api_key values echoed in the paid error body', async () => {
+    const baseFetch = scripted(
+      () =>
+        new Response('proxy error for /v1?api_key=SECRET-KEY', {
+          status: 500,
+          statusText: 'Internal Server Error',
+        })
+    );
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(),
+      fetch: baseFetch as typeof fetch,
+    });
+    const err = (await caught(
+      paidApi(paidFetch, { maxRetries: 2 }).getMetricList()
+    )) as GlassnodePaymentError;
+    expect(err).toBeInstanceOf(GlassnodePaymentError);
+    expect(err.status).toBe(500);
+    expect(err.message).not.toContain('SECRET-KEY');
+    expect((err.cause as GlassnodeApiError).message).not.toContain('SECRET-KEY');
+    expect(baseFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('the wrapped fetch itself rejects on an HTTP error after payment (used without GlassnodeAPI)', async () => {
+    const baseFetch = scripted(() => new Response('', { status: 503 }));
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(),
+      fetch: baseFetch as typeof fetch,
+    });
+    const err = (await caught(
+      paidFetch('https://x402.glassnode.com/v1/metadata/metrics')
+    )) as GlassnodePaymentError;
+    expect(err).toBeInstanceOf(GlassnodePaymentError);
+    expect(err.status).toBe(503);
+    expect(err.paymentMayHaveSettled).toBe(true);
+  });
+
+  it('unpaid probe -> 503 then 402 -> paid 200: probe retried, one payment, success', async () => {
+    const events: string[] = [];
+    let probes = 0;
+    const baseFetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (isPaidCall([input])) {
+        events.push('paid');
+        return new Response(JSON.stringify(['/market/price_usd_close']), { status: 200 });
+      }
+      events.push('probe');
+      probes++;
+      return probes === 1
+        ? new Response('', { status: 503, statusText: 'Service Unavailable' })
+        : response402();
+    });
+    const signTypedData = vi.fn(async (): Promise<`0x${string}`> => {
+      events.push('sign');
+      return FAKE_SIGNATURE;
+    });
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(signTypedData),
+      fetch: baseFetch as typeof fetch,
+    });
+    const result = await paidApi(paidFetch, { maxRetries: 2 }).getMetricList();
+
+    expect(result).toEqual(['/market/price_usd_close']);
+    expect(events).toEqual(['probe', 'probe', 'sign', 'paid']);
+    expect(signTypedData).toHaveBeenCalledTimes(1);
+  });
+
+  it('unpaid probe -> 503 exhausting retries stays a GlassnodeApiError(503); nothing signed', async () => {
+    const baseFetch = vi.fn(async () => new Response('', { status: 503 }));
+    const signTypedData = vi.fn(async (): Promise<`0x${string}`> => FAKE_SIGNATURE);
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(signTypedData),
+      fetch: baseFetch as typeof fetch,
+    });
+    const err = await caught(paidApi(paidFetch, { maxRetries: 2 }).getMetricList());
+    expect(err).toBeInstanceOf(GlassnodeApiError);
+    expect(err).not.toBeInstanceOf(GlassnodePaymentError);
+    expect((err as GlassnodeApiError).status).toBe(503);
+    expect(signTypedData).not.toHaveBeenCalled();
+    expect(baseFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('paid request -> 200: success unchanged, one payment', async () => {
+    const baseFetch = scripted(
+      () => new Response(JSON.stringify(['/market/price_usd_close']), { status: 200 })
+    );
+    const signTypedData = vi.fn(async (): Promise<`0x${string}`> => FAKE_SIGNATURE);
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(signTypedData),
+      fetch: baseFetch as typeof fetch,
+    });
+    const result = await paidApi(paidFetch, { maxRetries: 2 }).getMetricList();
+    expect(result).toEqual(['/market/price_usd_close']);
+    expect(signTypedData).toHaveBeenCalledTimes(1);
+    expect(baseFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('paid request -> 402 (payment refused) stays a GlassnodeApiError(402), one payment, not retried', async () => {
+    const baseFetch = vi.fn(async () => response402());
+    const signTypedData = vi.fn(async (): Promise<`0x${string}`> => FAKE_SIGNATURE);
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(signTypedData),
+      fetch: baseFetch as typeof fetch,
+    });
+    const err = await caught(paidApi(paidFetch, { maxRetries: 2 }).getMetricList());
+    expect(err).toBeInstanceOf(GlassnodeApiError);
+    expect(err).not.toBeInstanceOf(GlassnodePaymentError);
+    expect((err as GlassnodeApiError).status).toBe(402);
+    expect(signTypedData).toHaveBeenCalledTimes(1);
+    expect(baseFetch.mock.calls.filter(isPaidCall)).toHaveLength(1);
+    expect(baseFetch).toHaveBeenCalledTimes(2);
   });
 });
