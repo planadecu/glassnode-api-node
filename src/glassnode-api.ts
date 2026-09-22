@@ -15,6 +15,7 @@ import {
   GlassnodeNetworkError,
   GlassnodeValidationError,
 } from './errors.js';
+import { redactApiKey } from './redact.js';
 import {
   AssetMetadataResponse,
   MetricMetadataResponse,
@@ -27,11 +28,6 @@ import {
   BulkResponse,
   BulkResponseSchema,
 } from './types/metadata.js';
-
-/** Mask the `api_key` query-param value so it never reaches logs. */
-function redactApiKey(url: string): string {
-  return url.replace(/([?&]api_key=)[^&]+/gi, '$1***');
-}
 
 /** `name`s of the abort rejections fetch produces: `AbortSignal.timeout()` and a plain abort. */
 const ABORT_NAMES = new Set(['TimeoutError', 'AbortError']);
@@ -234,6 +230,9 @@ export class GlassnodeAPI {
             ? await this.fetchFn(url, { signal: AbortSignal.timeout(this.timeout) })
             : await this.fetchFn(url);
       } catch (error) {
+        // Already classified by a library-aware fetch (e.g. a GlassnodePaymentError from
+        // createX402Fetch): surface it unchanged and never retry it.
+        if (error instanceof GlassnodeError) throw error;
         // Network/transport failure (including a timeout abort) — retryable.
         retryAfterMs = undefined;
         const failure = describeTransportFailure(error);

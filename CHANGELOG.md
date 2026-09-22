@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.16.0
+
+- **New:** `GlassnodePaymentError` (extends `GlassnodeError`, exported from the package entry).
+  The fetch returned by `createX402Fetch()` now rejects with it when the x402 payment layer fails
+  before a paid response is obtained — the server's price is above `maxPaymentPerCall` (or x402's
+  own spend controls), the signer throws, or the `402` carries no usable payment requirements. The
+  message is x402's own (with any `api_key=` value redacted) and x402's error is on `.cause`.
+- **Behavior change (observable for callers using x402):** these payment failures used to surface
+  as `GlassnodeNetworkError` and were retried when `maxRetries` > 0 (each retry repeating the
+  unpaid request and failing again). They are now a `GlassnodePaymentError` and are **never
+  retried**. Code catching `GlassnodeNetworkError` for them must catch `GlassnodePaymentError`
+  (or the `GlassnodeError` base) instead. Unchanged: a transport failure of the underlying fetch is
+  still a retried `GlassnodeNetworkError`, and a `402` returned after payment is still a
+  `GlassnodeApiError` (status 402).
+- **Behavior change (observable):** `request()` now rethrows any `GlassnodeError` a custom
+  `fetch` rejects with unchanged and does not retry it; previously it was wrapped in a
+  `GlassnodeNetworkError` (message prefixed `Glassnode API error:`) and retried.
+- **Behavior change (observable):** the x402 setup helpers now throw library errors instead of
+  plain `Error`: an invalid USDC amount is a `GlassnodeInputError` (`argument: 'maxPaymentPerCall'`
+  from `createX402Fetch()`, `'value'` from `usdcDecimalToAtomic()`), and missing optional peer
+  dependencies are a `GlassnodeConfigError`. Messages are unchanged and both still extend `Error`.
+- Minor bump: new export plus changed error classes (the project is 0.x).
+
 ## 0.15.0
 
 - **Behavior change (observable for callers):** `getMetricMetadata()` and `getMetricStats()` now

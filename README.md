@@ -163,14 +163,15 @@ matching needed.
 
 ### Error types
 
-| Class                      | Thrown when                                                                                                                                         | Useful properties                                                                       |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `GlassnodeError`           | Base class of all the errors below — catch this to handle any library failure                                                                       | `message`, `cause`                                                                      |
-| `GlassnodeApiError`        | The API answered with a non-2xx HTTP status (e.g. `401`, `404`, `429`, `5xx`)                                                                       | `status`, `statusText`, `detail` (server message), `isRetryable` (429 / 5xx)            |
-| `GlassnodeNetworkError`    | No HTTP response: connection/DNS failure, abort, or the per-request `timeout` firing. Retried when `maxRetries` > 0                                 | `timedOut` (`true` when `timeout` fired), `cause` (the original fetch error)            |
-| `GlassnodeValidationError` | A `2xx` response was unusable: the body was not valid JSON, or did not match the expected schema. Never retried                                     | `endpoint` (API path, e.g. `/v1/metadata/assets`), `cause` (`ZodError` / `SyntaxError`) |
-| `GlassnodeConfigError`     | The options passed to `new GlassnodeAPI(...)` are invalid (e.g. empty `apiKey`, `x402` without `fetch`)                                             | `message` (lists the invalid fields), `cause` (`ZodError`)                              |
-| `GlassnodeInputError`      | A method argument is invalid (malformed metric path, `f` other than `json`, `api_key`/`path` in `params`). Raised before any request; never retried | `argument` (`metricPath` or `params.<name>`)                                            |
+| Class                      | Thrown when                                                                                                                                                                    | Useful properties                                                                       |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `GlassnodeError`           | Base class of all the errors below — catch this to handle any library failure                                                                                                  | `message`, `cause`                                                                      |
+| `GlassnodeApiError`        | The API answered with a non-2xx HTTP status (e.g. `401`, `404`, `429`, `5xx`)                                                                                                  | `status`, `statusText`, `detail` (server message), `isRetryable` (429 / 5xx)            |
+| `GlassnodeNetworkError`    | No HTTP response: connection/DNS failure, abort, or the per-request `timeout` firing. Retried when `maxRetries` > 0                                                            | `timedOut` (`true` when `timeout` fired), `cause` (the original fetch error)            |
+| `GlassnodeValidationError` | A `2xx` response was unusable: the body was not valid JSON, or did not match the expected schema. Never retried                                                                | `endpoint` (API path, e.g. `/v1/metadata/assets`), `cause` (`ZodError` / `SyntaxError`) |
+| `GlassnodeConfigError`     | The options passed to `new GlassnodeAPI(...)` are invalid (e.g. empty `apiKey`, `x402` without `fetch`), or `createX402Fetch` cannot load its optional peer dependencies       | `message` (lists the invalid fields), `cause` (`ZodError` / import error)               |
+| `GlassnodeInputError`      | A method argument is invalid (malformed metric path, `f` other than `json`, `api_key`/`path` in `params`, a bad `maxPaymentPerCall`). Raised before any request; never retried | `argument` (`metricPath`, `params.<name>`, `maxPaymentPerCall`)                         |
+| `GlassnodePaymentError`    | x402 only: the payment could not be made — the price exceeds `maxPaymentPerCall`, the signer failed, or the `402` had no usable payment requirements. Never retried            | `cause` (the error from `@x402/fetch` / the signer)                                     |
 
 ```typescript
 import {
@@ -180,6 +181,7 @@ import {
   GlassnodeNetworkError,
   GlassnodeValidationError,
   GlassnodeInputError,
+  GlassnodePaymentError,
 } from 'glassnode-api';
 
 try {
@@ -196,6 +198,8 @@ try {
     console.error(`unexpected response from ${err.endpoint}`, err.cause);
   } else if (err instanceof GlassnodeInputError) {
     console.error(`bad ${err.argument}: ${err.message}`); // fix the call; nothing was sent
+  } else if (err instanceof GlassnodePaymentError) {
+    console.error('x402 payment not made:', err.message); // e.g. price above maxPaymentPerCall
   } else if (err instanceof GlassnodeError) {
     // any other library error
   }
@@ -273,6 +277,18 @@ const mvrv = await api.callMetric('/market/mvrv', { a: 'BTC', i: '24h' });
 > **Spend safety:** `maxPaymentPerCall` caps a **single** request — it is **not** a cumulative budget, so
 > an agent loop can still spend within that ceiling repeatedly. Use a **dedicated, funded-but-limited**
 > wallet (never your primary key), and load the key from the environment — never hardcode it.
+
+**Errors**
+
+- The server's price is above `maxPaymentPerCall`, the signer throws, or the `402` carries no usable
+  payment requirements → `GlassnodePaymentError` (x402's error on `.cause`). It is **never
+  retried**, even with `maxRetries` > 0 — nothing was paid, and the same request would fail again.
+- The server answers `402` even after payment (e.g. insufficient USDC balance, settlement refused)
+  → `GlassnodeApiError` with `status` 402 (not retried).
+- The underlying `fetch` fails (connection error, `timeout`) → `GlassnodeNetworkError`, retried as
+  usual. Note that a retry re-runs the whole payment flow and signs a new payment.
+- Invalid `maxPaymentPerCall` → `GlassnodeInputError`; `@x402/fetch` / `@x402/evm` / `viem` not
+  installed → `GlassnodeConfigError`. Both are thrown by `createX402Fetch()` itself.
 
 **Notes**
 

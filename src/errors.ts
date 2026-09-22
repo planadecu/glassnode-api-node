@@ -74,7 +74,11 @@ export class GlassnodeValidationError extends GlassnodeError {
   }
 }
 
-/** The configuration passed to the `GlassnodeAPI` constructor is invalid. The `ZodError` is on `.cause`. */
+/**
+ * The configuration passed to the `GlassnodeAPI` constructor is invalid (the `ZodError` is on
+ * `.cause`), or `createX402Fetch` could not load its optional peer dependencies (the import error
+ * is on `.cause`).
+ */
 export class GlassnodeConfigError extends GlassnodeError {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
@@ -88,12 +92,34 @@ export class GlassnodeConfigError extends GlassnodeError {
  * sent — no network call is made. Never retried.
  */
 export class GlassnodeInputError extends GlassnodeError {
-  /** Which argument was rejected: `metricPath`, or `params.<name>` for a query parameter. */
+  /**
+   * Which argument was rejected: `metricPath`, or `params.<name>` for a query parameter. From the
+   * x402 helpers: `maxPaymentPerCall` (`createX402Fetch`) or `value` (`usdcDecimalToAtomic`).
+   */
   readonly argument: string;
 
   constructor(message: string, options: { argument: string; cause?: unknown }) {
     super(message, { cause: options.cause });
     this.name = 'GlassnodeInputError';
     this.argument = options.argument;
+  }
+}
+
+/**
+ * An x402 paid request could not be paid for: the payment layer (`@x402/fetch`) rejected before
+ * the paid request was sent — e.g. every payment requirement the server offered was above
+ * `maxPaymentPerCall` (or x402's own spend controls), the signer failed, or the server's `402`
+ * carried no usable payment requirements. The original error is on `.cause`. Never retried: the
+ * same request would fail the same way, and retrying payment flows risks paying twice.
+ *
+ * Only raised by a fetch built with `createX402Fetch` (from `glassnode-api/x402`). A transport
+ * failure of the underlying fetch stays a {@link GlassnodeNetworkError}; a `402` response that
+ * reaches the client (e.g. the payment was refused by the server) stays a
+ * {@link GlassnodeApiError} with `status` 402.
+ */
+export class GlassnodePaymentError extends GlassnodeError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'GlassnodePaymentError';
   }
 }

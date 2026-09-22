@@ -1,3 +1,6 @@
+import { GlassnodeConfigError, GlassnodeInputError, GlassnodePaymentError } from './errors.js';
+import { redactApiKey } from './redact.js';
+
 /**
  * Minimal structural shape of the signer x402 needs: an EVM address and an EIP-712 typed-data
  * signer. A viem account (e.g. `privateKeyToAccount(pk)`) satisfies this — the method syntax keeps
@@ -31,10 +34,18 @@ const USDC_DECIMALS = 6;
 // Base mainnet + Base Sepolia (CAIP-2). Registering both lets one wrapped fetch serve either host.
 const X402_NETWORKS = ['eip155:8453', 'eip155:84532'] as const;
 
-/** Convert a USDC decimal string (e.g. `'0.06'`) to atomic units (6 decimals). Truncates extra decimals. */
+/**
+ * Convert a USDC decimal string (e.g. `'0.06'`) to atomic units (6 decimals). Truncates extra decimals.
+ *
+ * @throws {GlassnodeInputError} `value` is not a non-negative decimal string (`argument: 'value'`).
+ */
 export function usdcDecimalToAtomic(value: string): bigint {
+  return parseUsdc(value, 'value');
+}
+
+function parseUsdc(value: string, argument: string): bigint {
   if (!/^\d+(\.\d+)?$/.test(value)) {
-    throw new Error(`Invalid USDC amount: "${value}"`);
+    throw new GlassnodeInputError(`Invalid USDC amount: "${value}"`, { argument });
   }
   const [whole, frac = ''] = value.split('.');
   const fracPadded = (frac + '0'.repeat(USDC_DECIMALS)).slice(0, USDC_DECIMALS);
@@ -52,6 +63,18 @@ export function createMaxAmountPolicy(maxAtomic: bigint) {
  *
  * Dynamically loads the optional peer deps `@x402/fetch` + `@x402/evm`; pass the result as the
  * `fetch` option of `GlassnodeAPI` together with `x402: true`.
+ *
+ * Errors:
+ * - Invalid `maxPaymentPerCall` → rejects with `GlassnodeInputError` (`argument: 'maxPaymentPerCall'`).
+ * - Optional peer deps not installed → rejects with `GlassnodeConfigError` (import error on `.cause`).
+ *
+ * The returned fetch rejects with a `GlassnodePaymentError` when the payment layer fails before a
+ * paid response is obtained — e.g. the server's price is above `maxPaymentPerCall`, the signer
+ * throws, or the `402` carries no usable payment requirements. `GlassnodeAPI` surfaces it as-is
+ * and never retries it. A rejection of the underlying `fetch` itself (connection failure, timeout
+ * abort) is passed through unchanged, so the client still reports and retries it as a
+ * `GlassnodeNetworkError`. A `402` the server returns after payment is not an error here; the
+ * client reports it as `GlassnodeApiError` (status 402).
  */
 export async function createX402Fetch(options: X402FetchOptions): Promise<typeof fetch> {
   const {
@@ -60,13 +83,13 @@ export async function createX402Fetch(options: X402FetchOptions): Promise<typeof
     fetch: baseFetch = globalThis.fetch,
   } = options;
 
-  const maxAtomic = usdcDecimalToAtomic(maxPaymentPerCall);
+  const maxAtomic = parseUsdc(maxPaymentPerCall, 'maxPaymentPerCall');
 
   const [x402fetchMod, evmMod] = await Promise.all([
     import('@x402/fetch'),
     import('@x402/evm'),
   ]).catch((err) => {
-    throw new Error(
+    throw new GlassnodeConfigError(
       "createX402Fetch requires the optional peer dependencies '@x402/fetch', '@x402/evm', and 'viem'. Install them: pnpm add @x402/fetch @x402/evm viem",
       { cause: err }
     );
@@ -85,5 +108,44 @@ export async function createX402Fetch(options: X402FetchOptions): Promise<typeof
     createMaxAmountPolicy(maxAtomic) as unknown as Parameters<typeof client.registerPolicy>[0]
   );
 
-  return wrapFetchWithPayment(baseFetch, client) as typeof fetch;
+  const paymentClient = client;
+
+  return async (input, init) => {
+    // Track rejections of the *base* fetch for this call, so they can be told apart from failures
+    // raised by the payment layer (which @x402/fetch throws as plain `Error`s, without a cause).
+    // The wrapper is built per call so concurrent calls never share this state; it is cheap
+    // (@x402/fetch only constructs a thin x402HTTPClient around the shared client).
+    let baseFailure: { error: unknown } | undefined;
+    const trackedBaseFetch: typeof fetch = async (...args) => {
+      try {
+        return await baseFetch(...args);
+      } catch (error) {
+        baseFailure = { error };
+        throw error;
+      }
+    };
+    const paidFetch = wrapFetchWithPayment(trackedBaseFetch, paymentClient) as typeof fetch;
+    try {
+      return await paidFetch(input, init);
+    } catch (error) {
+      // A transport failure of the base fetch: pass it through untouched (network error, retryable).
+      if (baseFailure && baseFailure.error === error) throw error;
+      throw toPaymentError(error);
+    }
+  };
+}
+
+/**
+ * Wrap a payment-layer failure. The message is x402's own (which names the failing step, e.g.
+ * "Failed to create payment payload: …"), with any `api_key` query value redacted. @x402/fetch's
+ * own messages carry no key or signature material (a signer's error text is included verbatim);
+ * the raw error stays on `.cause`.
+ */
+function toPaymentError(error: unknown): GlassnodePaymentError {
+  const detail =
+    error instanceof Error && error.message ? redactApiKey(error.message) : 'unknown error';
+  const hint = /filtered out by policies/.test(detail)
+    ? ' (the price exceeds maxPaymentPerCall)'
+    : '';
+  return new GlassnodePaymentError(`x402 payment failed: ${detail}${hint}`, { cause: error });
 }

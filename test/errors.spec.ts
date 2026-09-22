@@ -8,6 +8,7 @@ import {
   GlassnodeNetworkError,
   GlassnodeValidationError,
   GlassnodeConfigError,
+  GlassnodePaymentError,
 } from '../src/errors.js';
 import { API_KEY, BAD_REQUEST_ERROR } from './constants.js';
 import { mockMetricListResponse } from './mocks/metadata.mock.js';
@@ -36,6 +37,7 @@ describe('error hierarchy', () => {
     expect(pkg.GlassnodeNetworkError).toBe(GlassnodeNetworkError);
     expect(pkg.GlassnodeValidationError).toBe(GlassnodeValidationError);
     expect(pkg.GlassnodeConfigError).toBe(GlassnodeConfigError);
+    expect(pkg.GlassnodePaymentError).toBe(GlassnodePaymentError);
   });
 
   it('sets name and prototype chain on each class', () => {
@@ -45,6 +47,7 @@ describe('error hierarchy', () => {
       [new GlassnodeNetworkError('x', { timedOut: false }), 'GlassnodeNetworkError'],
       [new GlassnodeValidationError('x', { endpoint: '/e' }), 'GlassnodeValidationError'],
       [new GlassnodeConfigError('x'), 'GlassnodeConfigError'],
+      [new GlassnodePaymentError('x'), 'GlassnodePaymentError'],
     ];
     for (const [err, name] of cases) {
       expect(err.name).toBe(name);
@@ -123,6 +126,14 @@ describe('client failure paths', () => {
     const err = await caught(api(vi.fn().mockRejectedValue('boom')).getMetricList());
     expect(err).toBeInstanceOf(GlassnodeNetworkError);
     expect((err as GlassnodeNetworkError).cause).toBe('boom');
+  });
+
+  it('a GlassnodeError rejected by fetch is rethrown unchanged and not retried', async () => {
+    const paymentError = new GlassnodePaymentError('x402 payment failed: declined');
+    const fetchFn = vi.fn().mockRejectedValue(paymentError);
+    const err = await caught(api(fetchFn, { maxRetries: 3, retryDelay: 1 }).getMetricList());
+    expect(err).toBe(paymentError);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
   it('network errors are still retried, and the final one is a GlassnodeNetworkError', async () => {
