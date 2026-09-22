@@ -1,7 +1,15 @@
+import path from 'node:path';
 import eslint from '@eslint/js';
+import { includeIgnoreFile } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 
+// Flat config does not read .gitignore on its own. Honor it so `eslint .` skips
+// everything git ignores — notably `.claude/` (local tooling, including git
+// worktrees that are full repo copies) and `coverage/`.
+const gitignorePath = path.join(import.meta.dirname, '.gitignore');
+
 export default tseslint.config(
+  includeIgnoreFile(gitignorePath, 'Imported .gitignore patterns'),
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {

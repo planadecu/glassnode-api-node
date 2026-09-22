@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.3
+
+- Tooling: `pnpm run lint` now honors `.gitignore`. The ESLint flat config imports its patterns via
+  `includeIgnoreFile` (built into ESLint 10, no new dependency), so `eslint .` no longer lints
+  gitignored trees such as `.claude/` (including local git worktrees, which are full repository
+  copies) or `coverage/`. No package change.
+
 ## 0.22.2
 
 - Tests: cover x402 payment detection on `init.headers` (plain object, `Headers`, array of tuples)
