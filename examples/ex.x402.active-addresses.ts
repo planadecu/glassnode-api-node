@@ -96,7 +96,7 @@ async function main(): Promise<void> {
   const data = await api.callMetric<{ t: number; v: number }[]>(METRIC, {
     a: ASSET,
     i: RESOLUTION,
-    s: String(since),
+    s: since,
   });
 
   console.log(`\n${data.length} data points`);

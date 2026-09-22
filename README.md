@@ -35,6 +35,7 @@ const btcPrice = await api.callMetric('/market/price_usd_close', { a: 'BTC' });
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
 - [Methods](#methods)
+- [Query parameters](#query-parameters)
 - [Timestamps](#timestamps)
 - [Error Handling](#error-handling)
 - [Retries](#retries)
@@ -86,7 +87,8 @@ const stats = await api.getMetricStats('/institutions/us_spot_etf_balances_all')
 // Call any metric endpoint directly
 const data = await api.callMetric('/market/price_usd_close', {
   a: 'BTC',
-  s: '1609459200', // since (unix timestamp)
+  s: 1609459200, // since, unix seconds — or a Date: new Date('2021-01-01')
+  i: '24h',
 });
 ```
 
@@ -150,11 +152,55 @@ Arguments are checked before any request is sent; invalid input rejects with a
   never rewrites a path — a missing leading slash, whitespace, `//` or a trailing `/`, `.`/`..`
   segments, a query string (`/market/price_usd_close?a=BTC`) or a full URL are all rejected
   (a missing slash gets a "did you mean" hint). Pass query parameters via `params`.
+- **Parameter values** must be a string, finite number, boolean or valid `Date` (see
+  [Query parameters](#query-parameters)); `null`, `NaN`/`Infinity`, unsafe integers, an invalid
+  `Date`, objects and arrays are rejected (`argument` is `params.<name>`), and `params` itself
+  must be an object.
 - **Parameters the client sets itself** cannot be overridden: `api_key` is always rejected (set
   `apiKey` in the config), `f` is rejected unless it is `json` (case-insensitive) in
   `callMetric`, `callBulkMetric`, `getMetricMetadata` and `getMetricStats` (the client only parses
   JSON), and `path` is rejected in `getMetricMetadata`/`getMetricStats` (it comes from the `path`
   argument).
+
+## Query parameters
+
+`params` (the second argument of `callMetric`, `callBulkMetric`, `getMetricMetadata` and
+`getMetricStats`) is typed as `MetricParams`. The common Glassnode parameters are typed; any other
+parameter a metric documents can be passed as well:
+
+| Param  | Type                       | Meaning                                                      |
+| ------ | -------------------------- | ------------------------------------------------------------ |
+| `a`    | `string`                   | Asset, e.g. `'BTC'` (`'*'` for all assets on bulk endpoints) |
+| `s`    | `number \| string \| Date` | Since — start of the range, unix **seconds**                 |
+| `u`    | `number \| string \| Date` | Until — end of the range, unix **seconds**                   |
+| `i`    | `string`                   | Interval, e.g. `'10m'`, `'1h'`, `'24h'`, `'1w'`, `'1month'`  |
+| `c`    | `string`                   | Currency, e.g. `'native'`, `'usd'`                           |
+| `e`    | `string`                   | Exchange, e.g. `'binance'`                                   |
+| others | `MetricParamValue`         | `string \| number \| boolean \| Date`                        |
+
+Values are converted to query-string text before the request:
+
+- **string** — sent unchanged (so existing string params produce exactly the same URLs).
+- **number** — its shortest round-trip decimal form, independent of locale (`1609459200`, `0.1`;
+  `-0` → `0`). `NaN`, `±Infinity`, integers beyond `Number.MAX_SAFE_INTEGER` and numbers that would
+  print in exponent notation (e.g. `1e-7`) are rejected — pass those as a string.
+- **boolean** — `'true'` / `'false'`.
+- **Date** — unix **seconds**, floored to the whole second (milliseconds are dropped:
+  `2021-01-01T00:00:00.999Z` → `1609459200`). An invalid `Date` is rejected.
+- **undefined** — the parameter is omitted, so optional values can be passed directly
+  (`{ a: 'BTC', s: since }` with `since?: number`). `null` is rejected.
+
+Numbers are sent as-is: pass `s`/`u` in **seconds** (not `Date.now()` milliseconds) — or pass a
+`Date` and let the client convert it.
+
+```typescript
+const oneWeekAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+const recent = await api.callMetric('/market/price_usd_close', {
+  a: 'BTC',
+  s: oneWeekAgo,
+  i: '1h',
+});
+```
 
 ## Timestamps
 
@@ -184,15 +230,15 @@ matching needed.
 
 ### Error types
 
-| Class                      | Thrown when                                                                                                                                                                    | Useful properties                                                                       |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| `GlassnodeError`           | Base class of all the errors below — catch this to handle any library failure                                                                                                  | `message`, `cause`                                                                      |
-| `GlassnodeApiError`        | The API answered with a non-2xx HTTP status (e.g. `401`, `404`, `429`, `5xx`)                                                                                                  | `status`, `statusText`, `detail` (server message), `isRetryable` (429 / 5xx)            |
-| `GlassnodeNetworkError`    | No HTTP response: connection/DNS failure, abort, or the per-request `timeout` firing. Retried when `maxRetries` > 0                                                            | `timedOut` (`true` when `timeout` fired), `cause` (the original fetch error)            |
-| `GlassnodeValidationError` | A `2xx` response was unusable: the body was not valid JSON, or did not match the expected schema. Never retried                                                                | `endpoint` (API path, e.g. `/v1/metadata/assets`), `cause` (`ZodError` / `SyntaxError`) |
-| `GlassnodeConfigError`     | The options passed to `new GlassnodeAPI(...)` are invalid (e.g. empty `apiKey`, `x402` without `fetch`), or `createX402Fetch` cannot load its optional peer dependencies       | `message` (lists the invalid fields), `cause` (`ZodError` / import error)               |
-| `GlassnodeInputError`      | A method argument is invalid (malformed metric path, `f` other than `json`, `api_key`/`path` in `params`, a bad `maxPaymentPerCall`). Raised before any request; never retried | `argument` (`metricPath`, `params.<name>`, `maxPaymentPerCall`)                         |
-| `GlassnodePaymentError`    | x402 only: the payment could not be made — the price exceeds `maxPaymentPerCall`, the signer failed, or the `402` had no usable payment requirements. Never retried            | `cause` (the error from `@x402/fetch` / the signer)                                     |
+| Class                      | Thrown when                                                                                                                                                                                                       | Useful properties                                                                       |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `GlassnodeError`           | Base class of all the errors below — catch this to handle any library failure                                                                                                                                     | `message`, `cause`                                                                      |
+| `GlassnodeApiError`        | The API answered with a non-2xx HTTP status (e.g. `401`, `404`, `429`, `5xx`)                                                                                                                                     | `status`, `statusText`, `detail` (server message), `isRetryable` (429 / 5xx)            |
+| `GlassnodeNetworkError`    | No HTTP response: connection/DNS failure, abort, or the per-request `timeout` firing. Retried when `maxRetries` > 0                                                                                               | `timedOut` (`true` when `timeout` fired), `cause` (the original fetch error)            |
+| `GlassnodeValidationError` | A `2xx` response was unusable: the body was not valid JSON, or did not match the expected schema. Never retried                                                                                                   | `endpoint` (API path, e.g. `/v1/metadata/assets`), `cause` (`ZodError` / `SyntaxError`) |
+| `GlassnodeConfigError`     | The options passed to `new GlassnodeAPI(...)` are invalid (e.g. empty `apiKey`, `x402` without `fetch`), or `createX402Fetch` cannot load its optional peer dependencies                                          | `message` (lists the invalid fields), `cause` (`ZodError` / import error)               |
+| `GlassnodeInputError`      | A method argument is invalid (malformed metric path, a param value that cannot be sent, `f` other than `json`, `api_key`/`path` in `params`, a bad `maxPaymentPerCall`). Raised before any request; never retried | `argument` (`metricPath`, `params.<name>`, `maxPaymentPerCall`)                         |
+| `GlassnodePaymentError`    | x402 only: the payment could not be made — the price exceeds `maxPaymentPerCall`, the signer failed, or the `402` had no usable payment requirements. Never retried                                               | `cause` (the error from `@x402/fetch` / the signer)                                     |
 
 ```typescript
 import {

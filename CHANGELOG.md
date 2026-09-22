@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.18.0
+
+- **New:** query parameters accept `string | number | boolean | Date` values, not only strings,
+  in `callMetric`, `callBulkMetric`, `getMetricMetadata` and `getMetricStats` — e.g.
+  `{ a: 'BTC', s: 1609459200 }` or `{ s: new Date('2021-01-01') }` now compile. Values are
+  converted before the request: numbers to their shortest round-trip decimal form
+  (locale-independent, `-0` → `0`), booleans to `'true'`/`'false'`, a `Date` to unix **seconds**
+  floored to the whole second. Strings are sent unchanged, so existing calls produce
+  byte-identical URLs.
+- **New exported types:** `MetricParams` (the `params` type: typed `a`, `s`, `u`, `i`, `c`, `e`,
+  `f` plus an index signature for any other parameter; `api_key` is typed `never`),
+  `MetricParamValue`, `MetricTime` (`number | string | Date`) and `MetricInterval`.
+- A param whose value is `undefined` is now **omitted** (it used to be sent as the literal
+  `undefined`). An `undefined` `api_key`, `f` or `path` counts as absent, so it is no longer
+  rejected.
+- Values that cannot be sent are rejected with `GlassnodeInputError` (`argument`
+  `params.<name>`) before any request: `NaN`, `±Infinity`, integers beyond
+  `Number.MAX_SAFE_INTEGER`, numbers that would print in exponent notation (e.g. `1e-7`), an
+  invalid `Date`, `null`, and objects/arrays/bigints/symbols/functions. `params` that is not an
+  object (e.g. a string or an array) is rejected with `argument` `params`.
+- **Observable for callers:** typed string callers see no change. Untyped (JavaScript) callers
+  that passed `null`, an array (e.g. `['BTC', 'ETH']`, previously sent as `BTC,ETH`) or another
+  non-primitive now get a `GlassnodeInputError` instead of a stringified value (pass a
+  comma-joined string instead), and `undefined` values are dropped rather than sent. A literal
+  `{ api_key: '…' }` in `params` is now a compile error as well as the existing runtime
+  rejection. Minor bump: widened parameter types and new exports.
+
 ## 0.17.1
 
 - Fixed stale advice in the HTTP 402 `GlassnodeApiError` message. It told callers to check that

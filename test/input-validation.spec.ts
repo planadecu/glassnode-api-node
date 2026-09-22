@@ -176,7 +176,10 @@ describe('reserved query parameters', () => {
   it('rejects api_key in params in x402 mode too (no apiKey configured)', async () => {
     const fetchFn = neverFetch();
     const api = new GlassnodeAPI({ x402: true, fetch: fetchFn as typeof fetch });
-    const err = await caught(api.callMetric('/market/price_usd_close', { api_key: 'k' }));
+    const err = await caught(
+      // @ts-expect-error — api_key is typed `never` in MetricParams (also a compile-time error)
+      api.callMetric('/market/price_usd_close', { api_key: 'k' })
+    );
     expect(err).toBeInstanceOf(GlassnodeInputError);
     expect(fetchFn).not.toHaveBeenCalled();
   });

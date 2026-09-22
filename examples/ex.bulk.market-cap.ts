@@ -13,7 +13,7 @@ async function getAssetsByMarketCap() {
   const oneDayAgo = Math.floor(Date.now() / 1000) - 86400;
   const result = await api.callBulkMetric('/market/marketcap_usd', {
     a: '*',
-    s: String(oneDayAgo),
+    s: oneDayAgo, // unix seconds — numbers and Dates are converted by the client
     i: '24h',
   });
 

@@ -28,6 +28,7 @@ import {
   BulkResponse,
   BulkResponseSchema,
 } from './types/metadata.js';
+import type { MetricParams } from './types/params.js';
 
 /** `name`s of the abort rejections fetch produces: `AbortSignal.timeout()` and a plain abort. */
 const ABORT_NAMES = new Set(['TimeoutError', 'AbortError']);
@@ -122,15 +123,74 @@ function assertMetricPath(path: unknown): asserts path is string {
 }
 
 /**
- * Reject query parameters the client sets itself, instead of silently overriding them:
- * `api_key` always (configure `apiKey` instead), `f` unless it asks for JSON (the client only
- * parses JSON), and any extra names in `reserved` (e.g. `path` for the metadata endpoints).
+ * The epoch-ms time of a Date (NaN for an invalid one), or undefined if `value` is not a Date.
+ * A brand check rather than `instanceof`, so a Date from another realm (iframe, `vm`) counts too.
  */
-function assertParams(
-  params: Record<string, string>,
+function dateTime(value: unknown): number | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  try {
+    return Date.prototype.getTime.call(value);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The string form of a caller-supplied param value, or why it cannot be sent. */
+function formatParamValue(value: unknown): { value: string } | { problem: string } {
+  if (typeof value === 'string') return { value };
+  if (typeof value === 'boolean') return { value: value ? 'true' : 'false' };
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return { problem: `must be a finite number, got ${value}` };
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+      return {
+        problem: `${value} is outside the safe integer range (±${Number.MAX_SAFE_INTEGER}) and may have lost precision — pass it as a string`,
+      };
+    }
+    // Number#toString is locale-independent and gives the shortest round-trip form; -0 → "0".
+    const text = String(value);
+    if (/e/i.test(text)) {
+      return { problem: `${text} would be sent in exponent notation — pass it as a string` };
+    }
+    return { value: text };
+  }
+  const ms = dateTime(value);
+  if (ms !== undefined) {
+    if (Number.isNaN(ms)) return { problem: 'is an invalid Date' };
+    // Unix seconds, floored to the second the instant falls in (also for pre-1970 dates).
+    return { value: String(Math.floor(ms / 1000)) };
+  }
+  if (value === null) {
+    return { problem: 'must not be null — omit the parameter (or pass undefined) instead' };
+  }
+  const kind = Array.isArray(value) ? 'array' : typeof value;
+  return { problem: `must be a string, number, boolean or Date, got ${kind}` };
+}
+
+/**
+ * Validate caller-supplied query parameters and convert them to the strings that are sent (see
+ * `MetricParamValue`): `undefined` values are dropped, invalid values are rejected. Also
+ * rejects parameters the client sets itself, instead of silently overriding them: `api_key`
+ * always (configure `apiKey` instead), `f` unless it asks for JSON (the client only parses JSON),
+ * and any extra names in `reserved` (e.g. `path` for the metadata endpoints). Keeps key order,
+ * so string-only params produce exactly the same URL as before.
+ */
+function normalizeParams(
+  params: unknown,
   options: { format?: boolean; reserved?: string[] } = {}
-): void {
-  const has = (name: string) => Object.prototype.hasOwnProperty.call(params ?? {}, name);
+): Record<string, string> {
+  // A null-prototype record, so a "__proto__" param stays an ordinary key.
+  const out: Record<string, string> = Object.create(null);
+  if (params === undefined || params === null) return out;
+  if (typeof params !== 'object' || Array.isArray(params) || dateTime(params) !== undefined) {
+    throw new GlassnodeInputError(
+      `Invalid params: must be an object of query parameters (e.g. { a: 'BTC' }), got ${Array.isArray(params) ? 'array' : typeof params}`,
+      { argument: 'params' }
+    );
+  }
+  const record = params as Record<string, unknown>;
+  // Only defined values count: `{ api_key: undefined }` is the same as omitting it.
+  const has = (name: string) =>
+    Object.prototype.hasOwnProperty.call(record, name) && record[name] !== undefined;
   if (has('api_key')) {
     throw new GlassnodeInputError(
       'Invalid params: `api_key` must not be passed as a query parameter — set `apiKey` in the GlassnodeAPI config instead',
@@ -138,10 +198,10 @@ function assertParams(
     );
   }
   if (options.format && has('f')) {
-    const f = params.f;
+    const f = record.f;
     if (typeof f !== 'string' || f.toLowerCase() !== 'json') {
       throw new GlassnodeInputError(
-        `Invalid params: f=${JSON.stringify(f)} is not supported — this client only supports JSON responses (omit \`f\`)`,
+        `Invalid params: f=${formatForMessage(f)} is not supported — this client only supports JSON responses (omit \`f\`)`,
         { argument: 'params.f' }
       );
     }
@@ -154,6 +214,26 @@ function assertParams(
       );
     }
   }
+  for (const name of Object.keys(record)) {
+    const raw = record[name];
+    if (raw === undefined) continue;
+    const result = formatParamValue(raw);
+    if ('problem' in result) {
+      throw new GlassnodeInputError(`Invalid params: \`${name}\` ${result.problem}`, {
+        argument: `params.${name}`,
+      });
+    }
+    out[name] = result.value;
+  }
+  return out;
+}
+
+/** Render a rejected value for an error message without throwing (e.g. on a symbol or bigint). */
+function formatForMessage(value: unknown): string {
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (dateTime(value) !== undefined) return 'a Date';
+  if (value === null || typeof value !== 'object') return String(value);
+  return Array.isArray(value) ? 'an array' : 'an object';
 }
 
 /**
@@ -356,19 +436,21 @@ export class GlassnodeAPI {
   /**
    * Get metadata for a specific metric
    * @param metricPath Path of the metric
-   * @param params Queried parameters for the metric
+   * @param params Query parameters for the metric (see {@link MetricParams}); numbers, booleans
+   *   and Dates are converted (a Date → unix seconds), `undefined` values are omitted
    * @returns Promise resolving to validated metric metadata
    * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
-   *   malformed, `params.f` is anything but `json`, or `params` contains `path` or `api_key`
+   *   malformed, `params.f` is anything but `json`, `params` contains `path` or `api_key`, or a
+   *   param value cannot be converted (see `MetricParamValue`)
    */
   async getMetricMetadata(
     metricPath: string,
-    params: Record<string, string> = {}
+    params: MetricParams = {}
   ): Promise<MetricMetadataResponse> {
     assertMetricPath(metricPath);
-    assertParams(params, { format: true, reserved: ['path'] });
+    const query = normalizeParams(params, { format: true, reserved: ['path'] });
     const endpoint = '/v1/metadata/metric';
-    const response = await this.request(endpoint, { path: metricPath, ...params });
+    const response = await this.request(endpoint, { path: metricPath, ...query });
     return validateResponse(MetricMetadataResponseSchema, response, endpoint);
   }
 
@@ -376,19 +458,21 @@ export class GlassnodeAPI {
    * Get data-lag statistics for a specific metric.
    * Returns the current data lag as aggregated percentiles over the past 30 days.
    * @param metricPath Path of the metric (e.g. /institutions/us_spot_etf_balances_all)
-   * @param params Optional query parameters (e.g. `a` to scope stats to an asset)
+   * @param params Optional query parameters (e.g. `a` to scope stats to an asset; see
+   *   {@link MetricParams} for value conversion)
    * @returns Promise resolving to validated metric stats
    * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
-   *   malformed, `params.f` is anything but `json`, or `params` contains `path` or `api_key`
+   *   malformed, `params.f` is anything but `json`, `params` contains `path` or `api_key`, or a
+   *   param value cannot be converted (see `MetricParamValue`)
    */
   async getMetricStats(
     metricPath: string,
-    params: Record<string, string> = {}
+    params: MetricParams = {}
   ): Promise<MetricStatsResponse> {
     assertMetricPath(metricPath);
-    assertParams(params, { format: true, reserved: ['path'] });
+    const query = normalizeParams(params, { format: true, reserved: ['path'] });
     const endpoint = '/v1/metadata/metric/stats';
-    const response = await this.request(endpoint, { path: metricPath, ...params });
+    const response = await this.request(endpoint, { path: metricPath, ...query });
     return validateResponse(MetricStatsResponseSchema, response, endpoint);
   }
 
@@ -405,34 +489,34 @@ export class GlassnodeAPI {
   /**
    * Call a generic metric
    * @param metricPath Path of the metric (e.g. /accumulation_balance)
-   * @param params Queried parameters for the metric
+   * @param params Query parameters for the metric, e.g. `{ a: 'BTC', s: 1609459200, i: '24h' }`
+   *   or `{ a: 'BTC', s: new Date('2021-01-01') }` (see {@link MetricParams})
    * @returns Promise resolving to the response data
    * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
-   *   malformed, `params.f` is anything but `json`, or `params` contains `api_key`
+   *   malformed, `params.f` is anything but `json`, `params` contains `api_key`, or a param value
+   *   cannot be converted (see `MetricParamValue`)
    */
-  async callMetric<T>(metricPath: string, params: Record<string, string> = {}): Promise<T> {
+  async callMetric<T>(metricPath: string, params: MetricParams = {}): Promise<T> {
     assertMetricPath(metricPath);
-    assertParams(params, { format: true });
-    const response = await this.request('/v1/metrics' + metricPath, { ...params, f: 'json' });
+    const query = normalizeParams(params, { format: true });
+    const response = await this.request('/v1/metrics' + metricPath, { ...query, f: 'json' });
     return response as T;
   }
 
   /**
    * Call a bulk metric endpoint (returns data for all assets at once)
    * @param metricPath Path of the metric (e.g. /market/marketcap_usd)
-   * @param params Query parameters
+   * @param params Query parameters (see {@link MetricParams})
    * @returns Promise resolving to validated bulk response
    * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
-   *   malformed, `params.f` is anything but `json`, or `params` contains `api_key`
+   *   malformed, `params.f` is anything but `json`, `params` contains `api_key`, or a param value
+   *   cannot be converted (see `MetricParamValue`)
    */
-  async callBulkMetric(
-    metricPath: string,
-    params: Record<string, string> = {}
-  ): Promise<BulkResponse> {
+  async callBulkMetric(metricPath: string, params: MetricParams = {}): Promise<BulkResponse> {
     assertMetricPath(metricPath);
-    assertParams(params, { format: true });
+    const query = normalizeParams(params, { format: true });
     const endpoint = '/v1/metrics' + metricPath + '/bulk';
-    const response = await this.request<{ data?: unknown }>(endpoint, { ...params, f: 'json' });
+    const response = await this.request<{ data?: unknown }>(endpoint, { ...query, f: 'json' });
     return validateResponse(BulkResponseSchema, response?.data, endpoint);
   }
 }
