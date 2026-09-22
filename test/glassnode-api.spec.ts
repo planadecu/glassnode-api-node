@@ -156,6 +156,47 @@ describe('GlassnodeAPI', () => {
       expect(result[0].symbol).toBe('BTC');
     });
 
+    it('accepts external_ids from sources the client does not know yet', async () => {
+      const response = {
+        data: [
+          {
+            ...mockAssetMetadataResponse[0],
+            external_ids: { coingecko: 'bitcoin', defillama: 'bitcoin-dl' },
+          },
+        ],
+      };
+      const fetchFn = createMockFetch({
+        ok: true,
+        json: vi.fn().mockResolvedValue(response),
+      });
+
+      const api = createApi(fetchFn);
+      const result = await api.getAssetMetadata();
+
+      expect(result[0].external_ids.coingecko).toBe('bitcoin');
+      // unknown sources are preserved, not stripped
+      expect(result[0].external_ids['defillama']).toBe('bitcoin-dl');
+    });
+
+    it('still rejects a non-string external id', async () => {
+      const response = {
+        data: [
+          {
+            ...mockAssetMetadataResponse[0],
+            external_ids: { coingecko: 'bitcoin', defillama: 42 },
+          },
+        ],
+      };
+      const fetchFn = createMockFetch({
+        ok: true,
+        json: vi.fn().mockResolvedValue(response),
+      });
+
+      const api = createApi(fetchFn);
+
+      await expect(api.getAssetMetadata()).rejects.toThrow();
+    });
+
     it('should handle API errors', async () => {
       const fetchFn = createMockFetch({
         ok: false,
@@ -251,6 +292,28 @@ describe('GlassnodeAPI', () => {
         `${DEFAULT_API_URL}${METRIC_STATS_ENDPOINT}?path=%2Finstitutions%2Fus_spot_etf_balances_all&a=BTC&api_key=${API_KEY}`
       );
       expect(result).toEqual(mockMetricStatsResponse);
+    });
+
+    it('accepts a resolution with a missing percentile', async () => {
+      const response = {
+        lag: [
+          {
+            unit: 'seconds',
+            window: '30d',
+            resolution: { '1h': { p50: 3700, p90: 4200, p99: 6000 } },
+          },
+        ],
+      };
+      const fetchFn = createMockFetch({
+        ok: true,
+        json: vi.fn().mockResolvedValue(response),
+      });
+
+      const api = createApi(fetchFn);
+      const result = await api.getMetricStats('/institutions/us_spot_etf_balances_all');
+
+      expect(result.lag[0].resolution['1h'].p50).toBe(3700);
+      expect(result.lag[0].resolution['1h'].p95).toBeUndefined();
     });
 
     it('should reject a malformed response', async () => {

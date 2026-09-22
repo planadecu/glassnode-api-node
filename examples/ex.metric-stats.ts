@@ -69,8 +69,10 @@ async function fetchMetricStats(target: (typeof TARGETS)[number]) {
     }
 
     for (const entry of stats.lag) {
-      const fmt = entry.unit === 'seconds' ? formatLag : (v: number) => `${v}`;
-      const max = Math.max(...Object.values(entry.resolution).map((p) => p.p99), 0);
+      // Any percentile may be missing (undefined) — render it as "—".
+      const fmtValue = entry.unit === 'seconds' ? formatLag : (v: number) => `${v}`;
+      const fmt = (v: number | undefined) => (v === undefined ? '—' : fmtValue(v));
+      const max = Math.max(...Object.values(entry.resolution).map((p) => p.p99 ?? 0), 0);
 
       console.log(`  ${dim(`data lag · ${entry.unit} · trailing ${entry.window}`)}`);
       console.log(
@@ -84,7 +86,7 @@ async function fetchMetricStats(target: (typeof TARGETS)[number]) {
           `  ${bold(resolution.padEnd(4))}  ` +
             `${fmt(p.p50).padStart(8)}${fmt(p.p90).padStart(8)}` +
             `${fmt(p.p95).padStart(8)}${fmt(p.p99).padStart(8)}   ` +
-            lagBar(p.p50, p.p99, max)
+            lagBar(p.p50 ?? 0, p.p99 ?? p.p50 ?? 0, max)
         );
       }
     }

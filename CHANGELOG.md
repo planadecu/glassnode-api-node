@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.12.0
+
+- **Response schemas tolerate additive server changes** (rule of thumb: strict enums for inputs,
+  lenient for outputs).
+  - `ExternalIdsSchema` no longer rejects unknown sources. Previously it was a Zod v4 enum-keyed
+    record, which fails on unrecognized keys, so a single asset with a new source (e.g.
+    `{ coingecko: 'bitcoin', defillama: '…' }`) made the **whole** `getAssetMetadata()` call throw
+    `Unrecognized key`. It is now an object with the known sources as optional string properties
+    plus a string catch-all; unknown sources are kept (not stripped). Values must still be strings.
+    - **Type-level:** `ExternalIds` changes from `Record<ExternalIdSource, string | undefined>`
+      (all three keys required) to optional known keys plus a string index signature:
+      `{ ccdata?: string; coinmarketcap?: string; coingecko?: string; [source: string]: string }`.
+      Reading `ids.coingecko` is still `string | undefined`; building a value no longer requires
+      listing every known source. `ExternalIdSourceSchema` /
+      `ExternalIdSource` are kept and now document the _known_ sources, not a closed set.
+  - `LagPercentilesSchema` (used by `getMetricStats()`): `p50`/`p90`/`p95`/`p99` are each
+    **optional**. If the API omits a percentile for a resolution, the response still parses and
+    that field is `undefined`, instead of the whole call throwing. Chosen over dropping the
+    resolution or defaulting to a number, which would hide or invent data.
+    - **Type-level (source-breaking for some readers):** `LagPercentiles` fields are now
+      `number | undefined`. Code using them as `number` (arithmetic, `Math.max`, formatting) must
+      handle `undefined` (e.g. `p.p99 ?? 0`). No runtime change for complete responses. Released as
+      a minor bump under 0.x; `examples/ex.metric-stats.ts` updated accordingly.
+
 ## 0.11.0
 
 - `glassnode-api/x402`'s public types no longer depend on `viem`. `X402FetchOptions.account` is now

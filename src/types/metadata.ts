@@ -4,19 +4,30 @@
 import { z } from 'zod';
 
 /**
- * External identifier sources schema
+ * Known external identifier sources schema.
+ *
+ * Not a closed set: the API may return other sources, which `ExternalIdsSchema` accepts.
  */
 export const ExternalIdSourceSchema = z.enum(['ccdata', 'coinmarketcap', 'coingecko']);
 
 /**
- * External identifier sources type
+ * Known external identifier sources type
  */
 export type ExternalIdSource = z.infer<typeof ExternalIdSourceSchema>;
 
 /**
- * External identifiers for an asset schema
+ * External identifiers for an asset schema.
+ *
+ * Known sources are typed as optional properties; any other source the API adds is
+ * accepted and preserved (as a string) instead of failing validation.
  */
-export const ExternalIdsSchema = z.record(ExternalIdSourceSchema, z.string().optional());
+export const ExternalIdsSchema = z
+  .object({
+    ccdata: z.string().optional(),
+    coinmarketcap: z.string().optional(),
+    coingecko: z.string().optional(),
+  } satisfies Record<ExternalIdSource, z.ZodType>)
+  .catchall(z.string());
 
 /**
  * External identifiers for an asset type
@@ -239,13 +250,16 @@ export type MetricMetadataResponse = z.infer<typeof MetricMetadataResponseSchema
 export type MetricListResponse = z.infer<typeof MetricListResponseSchema>;
 
 /**
- * Lag percentiles schema (p50/p90/p95/p99 for one resolution)
+ * Lag percentiles schema (p50/p90/p95/p99 for one resolution).
+ *
+ * Each percentile is optional: if the API omits one for a resolution, the rest of the
+ * stats still parse and the missing percentile is `undefined`.
  */
 export const LagPercentilesSchema = z.object({
-  p50: z.number(),
-  p90: z.number(),
-  p95: z.number(),
-  p99: z.number(),
+  p50: z.number().optional(),
+  p90: z.number().optional(),
+  p95: z.number().optional(),
+  p99: z.number().optional(),
 });
 
 /**
