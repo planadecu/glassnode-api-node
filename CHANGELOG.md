@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.24.3
+
+- Docs: `examples/README.md` now documents `ex.bulk.market-cap.ts`; lists dependencies exactly as in
+  `examples/package.json` (`zod` resolves from the root install, not the examples); adds the root
+  `pnpm install` and `cp .env.example .env` setup steps; describes `ex.metric.dump.ts` accurately
+  (first 10 metrics); and lists the optional `X402_*` overrides for the x402 example. No code change.
+
 ## 0.24.2
 
 - Fixed: a `logger` that throws (or returns a rejected promise) can no longer change a call.
