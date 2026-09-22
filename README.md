@@ -30,7 +30,8 @@ const btcPrice = await api.callMetric('/market/price_usd_close', { a: 'BTC' });
 - 📦 **Bulk endpoints** — fetch every asset in a single call with `callBulkMetric()`
 - 🎯 **Typed errors** — every failure is a `GlassnodeError`; subclasses for HTTP, network/timeout, validation and config errors
 - 🪶 **Lightweight** — a single runtime dependency (`zod`)
-- 🔌 **Pluggable** — inject a custom `fetch` implementation and a `logger`
+- 🔌 **Pluggable** — inject a custom `fetch` implementation, a `logger` and structured
+  [observability hooks](#observability) for metrics and tracing
 
 ## Table of Contents
 
@@ -44,6 +45,7 @@ const btcPrice = await api.callMetric('/market/price_usd_close', { a: 'BTC' });
 - [Error Handling](#error-handling)
 - [Retries](#retries)
 - [Cancellation and per-call timeouts](#cancellation-and-per-call-timeouts)
+- [Observability](#observability)
 - [Bulk Metrics](#bulk-metrics)
 - [Paid calls with x402](#paid-calls-with-x402)
 - [Browser](#browser)
@@ -101,18 +103,19 @@ const data = await api.callMetric('/market/price_usd_close', {
 
 `new GlassnodeAPI(config)`
 
-| Option           | Type                                            | Default                     | Description                                                                                           |
-| ---------------- | ----------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `apiKey`         | `string`                                        | — (required unless `x402`)  | Your Glassnode API key                                                                                |
-| `apiUrl`         | `string`                                        | `https://api.glassnode.com` | Base URL for the API                                                                                  |
-| `apiKeyLocation` | `'query' \| 'header'`                           | `'query'`                   | Send the key as the `api_key` query parameter or the `X-Api-Key` header (server-side only; see below) |
-| `x402`           | `boolean`                                       | `false`                     | Route through the paid x402 endpoint (see [Paid calls with x402](#paid-calls-with-x402))              |
-| `logger`         | `(message: string, ...args: unknown[]) => void` | —                           | Callback for debug logging (e.g. `console.log`)                                                       |
-| `fetch`          | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (or an x402-wrapped fetch)                                                |
-| `maxRetries`     | `number`                                        | `0`                         | Retries for retryable errors (`429`, `5xx`)                                                           |
-| `retryDelay`     | `number`                                        | `1000`                      | Base retry delay in ms (doubles each attempt, then full jitter)                                       |
-| `maxRetryDelay`  | `number`                                        | `30000`                     | Upper bound in ms for a single retry wait                                                             |
-| `timeout`        | `number`                                        | — (no timeout)              | Per-request timeout in ms; each attempt aborts via `AbortSignal.timeout()`                            |
+| Option           | Type                                            | Default                     | Description                                                                                                   |
+| ---------------- | ----------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `apiKey`         | `string`                                        | — (required unless `x402`)  | Your Glassnode API key                                                                                        |
+| `apiUrl`         | `string`                                        | `https://api.glassnode.com` | Base URL for the API                                                                                          |
+| `apiKeyLocation` | `'query' \| 'header'`                           | `'query'`                   | Send the key as the `api_key` query parameter or the `X-Api-Key` header (server-side only; see below)         |
+| `x402`           | `boolean`                                       | `false`                     | Route through the paid x402 endpoint (see [Paid calls with x402](#paid-calls-with-x402))                      |
+| `logger`         | `(message: string, ...args: unknown[]) => void` | —                           | Callback for debug logging (e.g. `console.log`)                                                               |
+| `hooks`          | `GlassnodeHooks`                                | —                           | Structured `onRequest` / `onResponse` / `onRetry` / `onError` callbacks (see [Observability](#observability)) |
+| `fetch`          | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (or an x402-wrapped fetch)                                                        |
+| `maxRetries`     | `number`                                        | `0`                         | Retries for retryable errors (`429`, `5xx`)                                                                   |
+| `retryDelay`     | `number`                                        | `1000`                      | Base retry delay in ms (doubles each attempt, then full jitter)                                               |
+| `maxRetryDelay`  | `number`                                        | `30000`                     | Upper bound in ms for a single retry wait                                                                     |
+| `timeout`        | `number`                                        | — (no timeout)              | Per-request timeout in ms; each attempt aborts via `AbortSignal.timeout()`                                    |
 
 The config is validated at construction time — an invalid config (e.g. an empty `apiKey`) throws a `GlassnodeConfigError` immediately. When `x402` is enabled, `apiKey` is optional but a payment-capable `fetch` is required. Failed requests throw a `GlassnodeApiError` whose message includes the server's error detail (also on `.detail`).
 
@@ -412,6 +415,51 @@ await api.callMetric('/market/mvrv', { a: 'BTC' }, { signal: AbortSignal.timeout
   `GlassnodeAbortError` (nothing paid). Aborting after the paid request went out rejects with the
   `GlassnodePaymentError` (`paymentMayHaveSettled: true`) instead, since the payment may have settled;
   it is never retried either. See [Errors](#x402-errors).
+
+## Observability
+
+The `logger` option prints two free-text debug lines (`API call: <url>` before each attempt and
+`Retry n/m after Xms` before each retry wait). For metrics, tracing or structured logs, pass
+`hooks` instead (or as well) — each receives one structured event object:
+
+```typescript
+const api = new GlassnodeAPI({
+  apiKey: process.env.GLASSNODE_API_KEY,
+  maxRetries: 3,
+  hooks: {
+    onRequest: (e) =>
+      console.debug('glassnode →', e.callId, e.endpoint, `${e.attempt}/${e.maxAttempts}`),
+    onResponse: (e) => histogram.observe({ endpoint: e.endpoint, status: e.status }, e.durationMs),
+    onRetry: (e) =>
+      console.warn(`retry #${e.attempt} (${e.reason}) in ${e.delayMs}ms`, e.error.message),
+    onError: (e) => console.error('glassnode call failed', e.callId, e.error.name, e.status),
+  },
+});
+```
+
+| Hook         | When                                                        | Event fields (besides the shared ones)                                                           |
+| ------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `onRequest`  | before each attempt is sent                                 | —                                                                                                |
+| `onResponse` | an attempt got an HTTP response (any status)                | `status`, `ok`, `durationMs` (until the response headers)                                        |
+| `onRetry`    | an attempt failed retryably, before the backoff wait        | `reason` (`'status'` \| `'network'` \| `'timeout'`), `status?`, `error`, `delayMs`, `durationMs` |
+| `onError`    | once, when the call fails (abort and validation errors too) | `error` (the `GlassnodeError` the call rejects with), `status?`, `durationMs?`, `elapsedMs`      |
+
+Every event has `callId` (shared by all attempts of one call, so concurrent calls can be told
+apart), `method` (`'GET'`), `endpoint` (path only), `url` (with the key masked as `api_key=***`),
+`attempt` (1-based; `onRetry` names the attempt that failed, `onError` the last one, `0` if the call
+was cancelled before sending anything) and `maxAttempts` (`maxRetries + 1`). A successful call is
+an `onResponse` with `ok: true` and no `onError`; a `200` whose body fails validation is followed by
+`onError`. An invalid argument (`GlassnodeInputError`) fires no hook — nothing was sent.
+
+- **Hooks never break a call.** They run synchronously and are never awaited — an `async` hook does
+  not delay the request. A hook that throws or returns a rejected promise is ignored (reported to
+  the `logger`, if set, as `Hook <name> failed:`) and changes neither the result nor the retries.
+  Keep hooks cheap; hand slow work (exporting telemetry) off asynchronously.
+- **No secrets in events.** The URL is redacted and no request or response headers are exposed — so
+  neither the `X-Api-Key` header nor x402 payment headers or signatures. `error` is the same object
+  the call rejects with: its `message` and other string fields are masked, but, as for any
+  `GlassnodeError`, its `.cause` is the original error and is not.
+- The `logger` output is unchanged by `hooks`.
 
 ## Bulk Metrics
 

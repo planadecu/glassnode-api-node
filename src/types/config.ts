@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { GlassnodeHooks } from './hooks.js';
 
 /**
  * Logger function type for API call logging
@@ -31,6 +32,23 @@ const timerMs = () =>
     .max(MAX_TIMER_MS, `must be at most ${MAX_TIMER_MS} ms (the largest timer delay)`);
 
 /**
+ * One optional hook: any function, kept as given (`z.custom`, unlike `z.function()`, does not wrap
+ * it), typed with its event so hooks get contextual types in `GlassnodeConfig`.
+ */
+const hook = <K extends keyof GlassnodeHooks>() =>
+  z
+    .custom<NonNullable<GlassnodeHooks[K]>>((v) => typeof v === 'function', 'must be a function')
+    .optional();
+
+/** The `hooks` option. Strict, so a misspelled hook name fails instead of never firing. */
+const HooksSchema = z.strictObject({
+  onRequest: hook<'onRequest'>(),
+  onResponse: hook<'onResponse'>(),
+  onRetry: hook<'onRetry'>(),
+  onError: hook<'onError'>(),
+});
+
+/**
  * Zod schema for Glassnode API configuration
  */
 export const GlassnodeConfigSchema = z
@@ -54,6 +72,13 @@ export const GlassnodeConfigSchema = z
 
     /** Optional logger for API call debugging. */
     logger: z.function().optional(),
+
+    /**
+     * Optional structured observability hooks (`onRequest`, `onResponse`, `onRetry`, `onError`),
+     * called synchronously and never awaited; a failing hook never affects the call. See
+     * {@link GlassnodeHooks}.
+     */
+    hooks: HooksSchema.optional(),
 
     /** Optional custom fetch function (e.g. an x402-wrapped fetch, or for testing). */
     fetch: z.function().optional(),

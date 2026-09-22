@@ -53,6 +53,7 @@ Keep these separate; they answer different questions:
 ## API Client
 
 The main class is `GlassnodeAPI` which takes a configuration object:
+
 - `apiKey` (required) - Glassnode API key
 - `apiUrl` (optional) - Base URL, defaults to `https://api.glassnode.com`
 - `apiKeyLocation` (optional) - `'query'` (default, `api_key` query param) or `'header'` (`X-Api-Key`
@@ -65,15 +66,21 @@ The main class is `GlassnodeAPI` which takes a configuration object:
 - `retryDelay` (optional) - Base delay in ms between retries (default 1000, doubles each attempt, then full jitter)
 - `maxRetryDelay` (optional) - Upper bound in ms for a single retry wait (default 30000)
 - `timeout` (optional) - Per-request timeout in ms; each attempt aborts via `AbortSignal.timeout()` (default none)
+- `hooks` (optional) - Structured observability callbacks `{ onRequest, onResponse, onRetry, onError }`
+  (types in `src/types/hooks.ts`). Called synchronously, never awaited; a throwing/rejecting hook is
+  swallowed (reported to `logger`). Payloads carry a per-call `callId`, the redacted URL and no
+  headers — the API key must never reach a hook payload.
 
 ## Versioning
 
 Follow [semver](https://semver.org/):
+
 - **Major** (1.0.0 → 2.0.0): Breaking changes (removed/renamed exports, changed method signatures)
 - **Minor** (0.4.0 → 0.5.0): New features, new methods, new config options (backward-compatible)
 - **Patch** (0.5.0 → 0.5.1): Bug fixes, docs, internal refactors (no API changes)
 
 **Before every commit**, you MUST:
+
 1. Bump `version` in `package.json` (patch, minor, or major as appropriate)
 2. Add a corresponding entry to `CHANGELOG.md` describing the changes
 

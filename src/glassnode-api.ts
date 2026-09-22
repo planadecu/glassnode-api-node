@@ -32,6 +32,11 @@ import {
 } from './types/metadata.js';
 import type { MetricParams } from './types/params.js';
 import type { CallOptions, CallMetricOptions } from './types/call-options.js';
+import type {
+  GlassnodeHooks,
+  GlassnodeHookEventBase,
+  GlassnodeRetryReason,
+} from './types/hooks.js';
 
 /** `name`s of the abort rejections fetch produces: `AbortSignal.timeout()` and a plain abort. */
 const ABORT_NAMES = new Set(['TimeoutError', 'AbortError']);
@@ -384,6 +389,44 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+/** Next per-call correlation id (see `GlassnodeHookEventBase.callId`); process-local. */
+let nextCallId = 1;
+
+/** Per-call state behind the hook events of one call. */
+interface CallTrace {
+  callId: number;
+  endpoint: string;
+  /** Request URL with the API key masked. */
+  url: string;
+  maxAttempts: number;
+  /** `performance.now()` when the call started. */
+  startedAt: number;
+  /** 1-based number of the current (or last) attempt; 0 before the first one is sent. */
+  attempt: number;
+  /** Duration (ms) of the last attempt that settled, if any. */
+  lastDurationMs?: number;
+}
+
+/** The hook event of a hook `K`. */
+type HookEvent<K extends keyof GlassnodeHooks> = Parameters<NonNullable<GlassnodeHooks[K]>>[0];
+
+/** Why a retryable error is retried, for `onRetry`. */
+function retryCause(error: GlassnodeError | undefined): {
+  reason: GlassnodeRetryReason;
+  status?: number;
+} {
+  if (error instanceof GlassnodeApiError) return { reason: 'status', status: error.status };
+  return {
+    reason: error instanceof GlassnodeNetworkError && error.timedOut ? 'timeout' : 'network',
+  };
+}
+
+/** The HTTP status behind an error, if any (`GlassnodeApiError`, `GlassnodePaymentError`). */
+function errorStatus(error: GlassnodeError): number | undefined {
+  const status = (error as { status?: unknown }).status;
+  return typeof status === 'number' ? status : undefined;
+}
+
 /**
  * Glassnode API client
  */
@@ -392,6 +435,7 @@ export class GlassnodeAPI {
   private apiKeyLocation: 'query' | 'header';
   private apiUrl: string;
   private logger?: Logger;
+  private hooks?: GlassnodeHooks;
   private fetchFn: FetchFn;
   private maxRetries: number;
   private retryDelay: number;
@@ -417,6 +461,7 @@ export class GlassnodeAPI {
     this.apiKeyLocation = validatedConfig.apiKeyLocation;
     this.apiUrl = validatedConfig.apiUrl ?? (validatedConfig.x402 ? X402_API_URL : DEFAULT_API_URL);
     this.logger = validatedConfig.logger as Logger | undefined;
+    this.hooks = validatedConfig.hooks;
     this.fetchFn = (validatedConfig.fetch as FetchFn) ?? globalThis.fetch;
     this.maxRetries = validatedConfig.maxRetries;
     this.retryDelay = validatedConfig.retryDelay;
@@ -435,24 +480,66 @@ export class GlassnodeAPI {
   }
 
   /**
-   * Make an API request
+   * Call hook `name` with the event `build()` makes, if the hook is set. Synchronous and never
+   * awaited; a throw or a rejected promise is swallowed (and reported to the logger), so a hook
+   * can never change a call's outcome or its retries.
+   */
+  private emit<K extends keyof GlassnodeHooks>(name: K, build: () => HookEvent<K>): void {
+    const hook = this.hooks?.[name] as ((event: HookEvent<K>) => unknown) | undefined;
+    if (!hook) return;
+    try {
+      const result = hook(build());
+      if (
+        (typeof result === 'object' || typeof result === 'function') &&
+        result !== null &&
+        typeof (result as PromiseLike<unknown>).then === 'function'
+      ) {
+        (result as PromiseLike<unknown>).then(undefined, (error: unknown) =>
+          this.reportHookFailure(name, error)
+        );
+      }
+    } catch (error) {
+      this.reportHookFailure(name, error);
+    }
+  }
+
+  /** Pass a hook's failure to the logger; a logger that throws here is ignored too. */
+  private reportHookFailure(name: keyof GlassnodeHooks, error: unknown): void {
+    try {
+      this.logger?.(`Hook ${name} failed:`, error);
+    } catch {
+      // A failing hook must never break a call, even through the logger.
+    }
+  }
+
+  /** The fields every hook event of the call shares, for its current attempt. */
+  private static eventBase(trace: CallTrace): GlassnodeHookEventBase {
+    return {
+      callId: trace.callId,
+      method: 'GET',
+      endpoint: trace.endpoint,
+      url: trace.url,
+      attempt: trace.attempt,
+      maxAttempts: trace.maxAttempts,
+    };
+  }
+
+  /**
+   * Make an API request and turn its JSON body into the result with `finish` (e.g. schema
+   * validation). A failure of either — after argument validation, which the public methods do
+   * before calling this — is reported to the `onError` hook once, then rethrown unchanged.
    * @param endpoint API endpoint path
    * @param params Query parameters
    * @param options Validated per-call options (`signal`, `timeout` overriding the config one)
-   * @returns Promise resolving to the response data
+   * @param finish Maps the parsed JSON body to the result (identity when omitted)
+   * @returns Promise resolving to the result
    */
   private async request<T>(
     endpoint: string,
     params: Record<string, string> = {},
-    options: ResolvedCallOptions = {}
+    options: ResolvedCallOptions = {},
+    finish: (body: unknown) => T = (body) => body as T
   ): Promise<T> {
-    const { signal } = options;
-    const timeout = options.timeout ?? this.timeout;
-    // A caller abort is never retried; its reason stays on `.cause`.
-    const aborted = () =>
-      new GlassnodeAbortError('Glassnode API error: the request was aborted by the caller', {
-        cause: signal?.reason,
-      });
     // The key goes in the query string (default) or the X-Api-Key header — never both, and
     // neither when there is no key (e.g. x402 mode).
     const keyInHeader = this.apiKeyLocation === 'header' && this.apiKey !== undefined;
@@ -461,6 +548,53 @@ export class GlassnodeAPI {
       ...(this.apiKey && !keyInHeader ? { api_key: this.apiKey } : {}),
     });
     const url = `${this.apiUrl}${endpoint}?${queryParams}`;
+    const trace: CallTrace = {
+      callId: nextCallId++,
+      endpoint,
+      url: this.redact(url),
+      maxAttempts: this.maxRetries + 1,
+      startedAt: performance.now(),
+      attempt: 0,
+    };
+    try {
+      return finish(await this.send(url, keyInHeader, options, trace));
+    } catch (error) {
+      if (error instanceof GlassnodeError) {
+        const status = errorStatus(error);
+        const durationMs = trace.lastDurationMs;
+        this.emit('onError', () => ({
+          ...GlassnodeAPI.eventBase(trace),
+          error,
+          ...(status !== undefined ? { status } : {}),
+          ...(durationMs !== undefined ? { durationMs } : {}),
+          elapsedMs: performance.now() - trace.startedAt,
+        }));
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Send the request, with retries, and return its parsed JSON body.
+   * @param url Full request URL (with the key when it goes in the query string)
+   * @param keyInHeader Whether the key is sent as the X-Api-Key header
+   * @param options Validated per-call options (`signal`, `timeout` overriding the config one)
+   * @param trace The call's hook state; updated with each attempt
+   */
+  private async send(
+    url: string,
+    keyInHeader: boolean,
+    options: ResolvedCallOptions,
+    trace: CallTrace
+  ): Promise<unknown> {
+    const { endpoint } = trace;
+    const { signal } = options;
+    const timeout = options.timeout ?? this.timeout;
+    // A caller abort is never retried; its reason stays on `.cause`.
+    const aborted = () =>
+      new GlassnodeAbortError('Glassnode API error: the request was aborted by the caller', {
+        cause: signal?.reason,
+      });
     const headers = keyInHeader ? { 'X-Api-Key': this.apiKey as string } : undefined;
     let lastError: GlassnodeError | undefined;
     // Server-requested wait (from a Retry-After header) to use for the *next* attempt, if any.
@@ -470,6 +604,14 @@ export class GlassnodeAPI {
       if (attempt > 0) {
         const delay = this.nextRetryDelay(attempt, retryAfterMs);
         this.logger?.(`Retry ${attempt}/${this.maxRetries} after ${delay}ms`);
+        const failed = lastError;
+        this.emit('onRetry', () => ({
+          ...GlassnodeAPI.eventBase(trace),
+          ...retryCause(failed),
+          error: failed as GlassnodeError,
+          delayMs: delay,
+          durationMs: trace.lastDurationMs ?? 0,
+        }));
         // Cut short by a caller abort (checked right below).
         await sleep(delay, signal);
       }
@@ -477,6 +619,8 @@ export class GlassnodeAPI {
       if (signal?.aborted) throw aborted();
 
       this.logger?.('API call:', redactApiKey(url));
+      trace.attempt = attempt + 1;
+      this.emit('onRequest', () => GlassnodeAPI.eventBase(trace));
 
       // This attempt's signal: the caller's `signal` and/or a fresh `AbortSignal.timeout()` (a
       // new one per attempt), combined when both are set. `dispose` detaches the combiner's
@@ -490,6 +634,7 @@ export class GlassnodeAPI {
       try {
         // Transport step — the only part that is retried on failure.
         let response: Response;
+        const sentAt = performance.now();
         try {
           // Pass an `init` only when there is something to put in it (the key header and/or a
           // signal), so with the defaults a custom `fetch` still sees a single-argument call with
@@ -501,6 +646,7 @@ export class GlassnodeAPI {
           response =
             Object.keys(init).length > 0 ? await this.fetchFn(url, init) : await this.fetchFn(url);
         } catch (error) {
+          trace.lastDurationMs = performance.now() - sentAt;
           // Already classified by a library-aware fetch (e.g. a GlassnodePaymentError from
           // createX402Fetch, which also covers an abort after a payment was sent): surface it
           // unchanged and never retry it.
@@ -525,6 +671,15 @@ export class GlassnodeAPI {
           });
         }
 
+        const durationMs = performance.now() - sentAt;
+        trace.lastDurationMs = durationMs;
+        this.emit('onResponse', () => ({
+          ...GlassnodeAPI.eventBase(trace),
+          status: response.status,
+          ok: response.ok,
+          durationMs,
+        }));
+
         if (!response.ok) {
           // The status text comes from the server (or a proxy) too, so it is redacted as well.
           const statusText = this.redact(response.statusText);
@@ -543,7 +698,7 @@ export class GlassnodeAPI {
 
         // Success. Parsing a 200 body is NOT a transient error, so it is thrown, never retried.
         try {
-          return (await response.json()) as T;
+          return (await response.json()) as unknown;
         } catch (parseError) {
           // Reading the body was cut off by the caller's abort: that is not a malformed body.
           if (signal?.aborted) throw aborted();
@@ -596,9 +751,13 @@ export class GlassnodeAPI {
   async getAssetMetadata(options?: CallOptions): Promise<AssetMetadataResponse> {
     const callOptions = normalizeCallOptions(options);
     const endpoint = '/v1/metadata/assets';
-    const response = await this.request<{ data?: unknown }>(endpoint, {}, callOptions);
-    return validateResponse(AssetMetadataResponseSchema, response?.data, endpoint, (t) =>
-      this.redact(t)
+    return this.request(endpoint, {}, callOptions, (body) =>
+      validateResponse(
+        AssetMetadataResponseSchema,
+        (body as { data?: unknown } | null)?.data,
+        endpoint,
+        (t) => this.redact(t)
+      )
     );
   }
 
@@ -624,9 +783,8 @@ export class GlassnodeAPI {
     const query = normalizeParams(params, { format: true, reserved: ['path'] });
     const callOptions = normalizeCallOptions(options);
     const endpoint = '/v1/metadata/metric';
-    const response = await this.request(endpoint, { path: metricPath, ...query }, callOptions);
-    return validateResponse(MetricMetadataResponseSchema, response, endpoint, (t) =>
-      this.redact(t)
+    return this.request(endpoint, { path: metricPath, ...query }, callOptions, (body) =>
+      validateResponse(MetricMetadataResponseSchema, body, endpoint, (t) => this.redact(t))
     );
   }
 
@@ -653,8 +811,9 @@ export class GlassnodeAPI {
     const query = normalizeParams(params, { format: true, reserved: ['path'] });
     const callOptions = normalizeCallOptions(options);
     const endpoint = '/v1/metadata/metric/stats';
-    const response = await this.request(endpoint, { path: metricPath, ...query }, callOptions);
-    return validateResponse(MetricStatsResponseSchema, response, endpoint, (t) => this.redact(t));
+    return this.request(endpoint, { path: metricPath, ...query }, callOptions, (body) =>
+      validateResponse(MetricStatsResponseSchema, body, endpoint, (t) => this.redact(t))
+    );
   }
 
   /**
@@ -668,8 +827,9 @@ export class GlassnodeAPI {
   async getMetricList(options?: CallOptions): Promise<MetricListResponse> {
     const callOptions = normalizeCallOptions(options);
     const endpoint = '/v1/metadata/metrics';
-    const response = await this.request(endpoint, {}, callOptions);
-    return validateResponse(MetricListResponseSchema, response, endpoint, (t) => this.redact(t));
+    return this.request(endpoint, {}, callOptions, (body) =>
+      validateResponse(MetricListResponseSchema, body, endpoint, (t) => this.redact(t))
+    );
   }
 
   /**
@@ -724,9 +884,9 @@ export class GlassnodeAPI {
     const callOptions = normalizeCallOptions(options);
     const schema = metricSchema(options);
     const endpoint = '/v1/metrics' + metricPath;
-    const response = await this.request(endpoint, { ...query, f: 'json' }, callOptions);
-    if (schema === undefined) return response;
-    return validateResponse(schema, response, endpoint, (t) => this.redact(t));
+    return this.request(endpoint, { ...query, f: 'json' }, callOptions, (body) =>
+      schema === undefined ? body : validateResponse(schema, body, endpoint, (t) => this.redact(t))
+    );
   }
 
   /**
@@ -750,11 +910,13 @@ export class GlassnodeAPI {
     const query = normalizeParams(params, { format: true });
     const callOptions = normalizeCallOptions(options);
     const endpoint = '/v1/metrics' + metricPath + '/bulk';
-    const response = await this.request<{ data?: unknown }>(
-      endpoint,
-      { ...query, f: 'json' },
-      callOptions
+    return this.request(endpoint, { ...query, f: 'json' }, callOptions, (body) =>
+      validateResponse(
+        BulkResponseSchema,
+        (body as { data?: unknown } | null)?.data,
+        endpoint,
+        (t) => this.redact(t)
+      )
     );
-    return validateResponse(BulkResponseSchema, response?.data, endpoint, (t) => this.redact(t));
   }
 }

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.23.0
+
+- Added: structured observability hooks — the `hooks` config option,
+  `{ onRequest, onResponse, onRetry, onError }` (all optional). Each hook gets one event with a
+  per-call `callId` (shared by every attempt of a call), `method`, `endpoint`, the redacted `url`,
+  the 1-based `attempt` and `maxAttempts`; `onResponse` adds `status`, `ok` and the attempt's
+  `durationMs`; `onRetry` adds `reason` (`'status'` / `'network'` / `'timeout'`), `status`, the
+  `error`, `delayMs` and `durationMs`; `onError` fires once per failed call (including a caller
+  abort and a response validation error) with the `GlassnodeError` the call rejects with, `status`,
+  the last attempt's `durationMs` and the call's `elapsedMs`. Invalid arguments
+  (`GlassnodeInputError`) fire no hooks.
+- Hooks run synchronously and are never awaited; a hook that throws or rejects is swallowed
+  (reported to the `logger` as `Hook <name> failed:`) and never changes the call's result or
+  retries. Payloads never carry the API key: the URL is masked and no headers (so no `X-Api-Key`
+  or x402 payment headers) are exposed. The `hooks` option is validated at construction (unknown
+  hook names and non-functions throw `GlassnodeConfigError`). New exported types:
+  `GlassnodeHooks`, `GlassnodeHookEventBase`, `GlassnodeRequestEvent`, `GlassnodeResponseEvent`,
+  `GlassnodeRetryEvent`, `GlassnodeRetryReason`, `GlassnodeErrorEvent`. The `logger` output is
+  unchanged.
+
 ## 0.22.3
 
 - Tooling: `pnpm run lint` now honors `.gitignore`. The ESLint flat config imports its patterns via
