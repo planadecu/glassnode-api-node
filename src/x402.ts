@@ -1,9 +1,25 @@
-import type { LocalAccount } from 'viem';
+/**
+ * Minimal structural shape of the signer x402 needs: an EVM address and an EIP-712 typed-data
+ * signer. A viem account (e.g. `privateKeyToAccount(pk)`) satisfies this — the method syntax keeps
+ * viem's account assignable. Declared structurally so the public `./x402` types do not depend on
+ * `viem` (an optional peer), which otherwise breaks `moduleResolution: node16` type-checking for
+ * consumers with `skipLibCheck: false`.
+ */
+export interface X402SignerAccount {
+  /** 0x-prefixed EVM address of the signer. */
+  address: `0x${string}`;
+  /**
+   * Sign EIP-712 typed data; returns a 0x-prefixed signature. `unknown` (with method syntax, which
+   * is bivariant) keeps viem's narrower `signTypedData` assignable while remaining callable by
+   * anyone implementing a custom signer or test double.
+   */
+  signTypedData(parameters: unknown): Promise<`0x${string}`>;
+}
 
 /** Options for {@link createX402Fetch}. */
 export interface X402FetchOptions {
-  /** viem account used to sign payment authorizations (e.g. `privateKeyToAccount(pk)`). */
-  account: LocalAccount;
+  /** Account used to sign payment authorizations (e.g. a viem `privateKeyToAccount(pk)`). */
+  account: X402SignerAccount;
   /** Per-call spend ceiling in USDC (decimal string). Default `'0.06'` (just above the $0.05 metric price). */
   maxPaymentPerCall?: string;
   /** Base fetch to wrap. Default `globalThis.fetch`. */

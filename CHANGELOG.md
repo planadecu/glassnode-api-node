@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.0
+
+- `glassnode-api/x402`'s public types no longer depend on `viem`. `X402FetchOptions.account` is now
+  typed as a new structural `X402SignerAccount` interface (`{ address, signTypedData }`) instead of
+  viem's `LocalAccount`. A viem account (`privateKeyToAccount(pk)`) is still assignable (verified by
+  the type-checked integration test), and consumers on `moduleResolution: node16` with
+  `skipLibCheck: false` no longer pull in `viem`'s type chain — clearing `TS1541` and ~12 transitive
+  errors from the shipped `.d.ts`.
+  - No runtime change. **Type-level note:** the accepted input is wider but the *read* type is
+    narrower — code that extracted `X402FetchOptions['account']` and called viem-specific methods on
+    it will no longer compile (fine under 0.x; pass/keep a viem account as before and nothing
+    changes).
+  - Guarded by a new CI fixture (`typecheck/x402-node16/`) that type-checks a `node16` consumer of
+    `glassnode-api/x402` with `skipLibCheck:false` — the leak attw cannot detect.
+
 ## 0.10.0
 
 - **Real Node ESM entry.** The `import` condition now resolves to an unbundled ESM build
