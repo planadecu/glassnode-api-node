@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.21.1
+
+- Docs: the README's Browser section now says that, as of September 2026, Glassnode's API only
+  allows cross-origin requests from `*.glassnode.com`, so the browser bundles cannot call
+  `api.glassnode.com` directly from other origins. It recommends a server-side proxy that injects
+  the API key (via `apiUrl`) and never shipping a key to the browser. The intro and "Universal"
+  feature claims are qualified to match. No code change.
+
 ## 0.21.0
 
 - **New:** per-call options on every method, as a new optional **last** argument:

@@ -9,7 +9,8 @@
 
 A fully-typed **TypeScript client for the [Glassnode API](https://docs.glassnode.com/)** — on-chain and
 market data for Bitcoin, Ethereum, and hundreds of crypto assets. Responses are runtime-validated with
-[Zod](https://zod.dev/), and it runs in both **Node.js** and the **browser**.
+[Zod](https://zod.dev/). It runs in **Node.js** and ships **browser** bundles (see
+[Browser](#browser) for the CORS limits of calling Glassnode directly from a web page).
 
 ```typescript
 import { GlassnodeAPI } from 'glassnode-api';
@@ -22,7 +23,8 @@ const btcPrice = await api.callMetric('/market/price_usd_close', { a: 'BTC' });
 
 - 🧩 **Fully typed** — complete TypeScript definitions for every request and response
 - ✅ **Runtime-validated** — responses parsed and validated with Zod, so bad data fails fast
-- 🌐 **Universal** — works in Node.js and the browser (UMD + ESM bundles, tree-shakeable)
+- 🌐 **Universal** — Node.js (CJS + ESM) plus browser bundles (UMD + ESM); in web pages Glassnode's
+  CORS policy applies — see [Browser](#browser)
 - 🔁 **Built-in retries** — automatic retry with exponential backoff for `429` and `5xx`
 - ⏹️ **Cancellable** — per-call `AbortSignal` and `timeout` on every method
 - 📦 **Bulk endpoints** — fetch every asset in a single call with `callBulkMetric()`
@@ -469,14 +471,25 @@ try {
 
 ## Browser
 
-The library ships prebuilt UMD and ESM bundles, so it also runs directly in the browser
-without a build step.
+The library ships prebuilt UMD and ESM bundles, but a web page usually **cannot call
+`api.glassnode.com` directly**. As of September 2026, Glassnode's API only sends
+`Access-Control-Allow-Origin` for `*.glassnode.com` origins, so for a page served from any other
+origin (including `localhost`) the browser blocks access to the response and the call fails with
+a network error (`GlassnodeNetworkError`).
+
+Recommended pattern: call Glassnode from your server, or put a thin proxy in front of it that
+injects the API key server-side, and point the browser at that proxy with `apiUrl`. Never ship
+a Glassnode API key to a browser — anyone can read it from the page.
 
 ```html
 <!-- UMD -->
 <script src="https://unpkg.com/glassnode-api/dist/glassnode-api.umd.min.js"></script>
 <script>
-  const api = new GlassnodeAPI.GlassnodeAPI({ apiKey: 'YOUR_API_KEY' });
+  // Your proxy forwards /v1/... to https://api.glassnode.com and adds the real key.
+  const api = new GlassnodeAPI.GlassnodeAPI({
+    apiKey: 'unused', // required by the client; the proxy should ignore/replace it
+    apiUrl: 'https://your-app.example.com/glassnode',
+  });
 </script>
 ```
 
@@ -485,14 +498,18 @@ without a build step.
 <script type="module">
   import { GlassnodeAPI } from 'https://unpkg.com/glassnode-api/dist/glassnode-api.esm.min.js';
 
-  const api = new GlassnodeAPI({ apiKey: 'YOUR_API_KEY' });
+  const api = new GlassnodeAPI({
+    apiKey: 'unused',
+    apiUrl: 'https://your-app.example.com/glassnode',
+  });
 </script>
 ```
 
-> Your API key is exposed to end users in browser code. Only ship it in trusted,
-> first-party contexts — otherwise proxy Glassnode requests through your own backend.
-> Keep the default `apiKeyLocation: 'query'` in the browser (see
-> [Keeping the API key out of URLs](#keeping-the-api-key-out-of-urls)).
+The bundles also work unchanged where CORS does not apply, such as browser extensions with host
+permissions for `api.glassnode.com` (from the background script), or Deno, Bun and other non-browser
+runtimes. If you do call Glassnode directly from a browser context, keep the default
+`apiKeyLocation: 'query'`: `'header'` fails the CORS preflight (see
+[Keeping the API key out of URLs](#keeping-the-api-key-out-of-urls)).
 
 ## Examples
 
