@@ -13,6 +13,8 @@ This document provides context for Claude when working with this project.
 - `/scripts` - `smoke-timeout.mjs`, the plain-Node runtime smoke run on Node 18 in CI
 - `/typecheck/x402-node16` - consumer type-check fixture (node16 resolution, `skipLibCheck: false`)
 - `/dist` - Compiled output (not checked into git)
+- `/api-docs` - Generated TypeDoc API reference (`pnpm run docs`; not checked into git, never
+  published to npm)
 
 ## Development Workflow
 
@@ -22,6 +24,10 @@ This document provides context for Claude when working with this project.
 - Format code with `pnpm run format` (check only: `npx prettier --check .`)
 - Build the project with `pnpm run build`
 - Build browser bundles with `pnpm run build:browser`
+- Build the API reference with `pnpm run docs` (TypeDoc; config in `typedoc.json`, output in
+  `api-docs/`). It fails on any warning (`treatWarningsAsErrors`): a broken `{@link}`, a doc
+  comment referencing a type the entry points do not export, or a bad README path. See
+  [API reference (TypeDoc)](#api-reference-typedoc)
 - Type-check tests with `pnpm exec tsc -p tsconfig.test.json --noEmit` (Vitest does not type-check)
   and examples with `pnpm exec tsc -p tsconfig.examples.json`
 - The Husky pre-commit hook runs `pnpm test`, `lint-staged` (ESLint + Prettier + related tests on
@@ -58,6 +64,22 @@ Keep these separate; they answer different questions:
   is also 8.x), so TypeScript 7.0 breaks `pnpm run lint` in CI and the Husky pre-commit hook.
   `6.0.3` is already the newest stable 6.x, so TypeScript needs no bump. Only move to 7.x once
   `typescript-eslint` ships a release whose peer range accepts it.
+- `typedoc` (`^0.28.20`) also gates the TypeScript version: its `typescript` peer is an explicit
+  list of minors (`5.0.x || … || 5.9.x || 6.0.x` on 0.28.20, the current latest), so any
+  TypeScript bump — even to 6.1 — needs a `typedoc` release that lists it, or `pnpm run docs`
+  (and CI) break.
+
+### API reference (TypeDoc)
+
+- Entry points `src/index.ts` (module `glassnode-api`) and `src/x402.ts` (`glassnode-api/x402`),
+  named by their `@module` comments; README.md is the landing page.
+- `typedoc-plugin-zod` expands `z.infer`/`z.input` aliases into their object types, so Zod-derived
+  types (e.g. `MetricMetadata`, `GlassnodeConfig`) render readably, with their field comments,
+  instead of as `z.infer<typeof …>`.
+- Validation: `notExported`, `invalidLink`, `invalidPath` and `rewrittenLink` are on, and every
+  warning is an error. `notDocumented` is **off**: with it on, the only reports are nested members
+  of Zod objects and `z.enum` literals (e.g. `p50`, `ccdata`, `tier1`), and `z.enum` literals
+  cannot carry comments at all. Every top-level export and class member is documented — keep it so.
 
 ## API Client
 
@@ -133,8 +155,13 @@ Follow [semver](https://semver.org/):
 
 - `test` (Node 24): lint, `test:coverage` (thresholds in `vitest.config.ts`), `tsc` on
   `tsconfig.test.json` and `tsconfig.examples.json`, `build`, `build:browser`, the
-  `typecheck/x402-node16` consumer check, `publint` and `@arethetypeswrong/cli --pack .`.
+  `typecheck/x402-node16` consumer check, `docs` (TypeDoc), `publint` and
+  `@arethetypeswrong/cli --pack .`.
 - `compat-node18` (Node 18): build, CJS `require` smoke, `scripts/smoke-timeout.mjs`.
+
+`.github/workflows/docs.yml` builds the API reference on every push to `main` and deploys it to
+GitHub Pages (https://planadecu.github.io/glassnode-api-node/). It requires the repo setting
+Settings → Pages → Source: **GitHub Actions**.
 
 The publish workflow only re-runs lint, `test:coverage`, the test type-check, `build` and
 `build:browser` before publishing (not the examples or packaging checks), so a direct commit to

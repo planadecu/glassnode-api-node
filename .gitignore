@@ -12,3 +12,6 @@ examples/pnpm-lock.yaml
 
 # Internal design/planning notes live under .claude/docs/ (not versioned)
 /docs
+
+# Generated API reference (pnpm run docs; deployed to GitHub Pages by docs.yml)
+/api-docs

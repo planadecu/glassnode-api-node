@@ -38,6 +38,9 @@ jobs:
       - run: pnpm exec tsc -p tsconfig.examples.json
       - run: pnpm run build
       - run: pnpm run build:browser
+      # Build the TypeDoc API reference (typedoc.json: treatWarningsAsErrors), so a broken {@link},
+      # a doc comment referencing an unexported type or a bad README path fails the PR.
+      - run: pnpm run docs
       # Deep type-resolution guard that attw can't provide (it runs with skipLibCheck on): a
       # node16 consumer importing `glassnode-api/x402` with skipLibCheck:false. Catches a public
       # `.d.ts` accidentally re-importing an optional peer's types (e.g. viem → TS1541).

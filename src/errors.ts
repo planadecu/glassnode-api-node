@@ -30,7 +30,9 @@ export class GlassnodeError extends Error {
 
 /** The API answered with a non-2xx HTTP status. */
 export class GlassnodeApiError extends GlassnodeError {
+  /** HTTP status code of the response (e.g. `429`, `503`). */
   readonly status: number;
+  /** HTTP status text of the response as received (may be empty, e.g. over HTTP/2). */
   readonly statusText: string;
   /** Server-provided error detail parsed from the response body, if any. */
   readonly detail?: string;

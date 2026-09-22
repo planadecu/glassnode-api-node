@@ -37,6 +37,8 @@ const btcPrice = await api.callMetric('/market/price_usd_close', { a: 'BTC' });
 
 ## Table of Contents
 
+- [API reference](https://planadecu.github.io/glassnode-api-node/) (every export, generated from the
+  source with TypeDoc)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)

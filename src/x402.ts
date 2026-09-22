@@ -1,3 +1,10 @@
+/**
+ * Paid, key-less access through the x402 endpoint: {@link createX402Fetch} builds the
+ * x402-capable `fetch` to pass to a `GlassnodeAPI` created with `x402: true`. Requires the optional
+ * peers `@x402/fetch`, `@x402/evm` and `viem`.
+ *
+ * @module glassnode-api/x402
+ */
 import { readErrorDetail } from './error-detail.js';
 import {
   GlassnodeApiError,

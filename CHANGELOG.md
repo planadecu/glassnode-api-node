@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.26.2
+
+- Added a generated API reference built with TypeDoc (`pnpm run docs`, output in the untracked
+  `api-docs/`), covering both entry points (`glassnode-api` and `glassnode-api/x402`), with
+  Zod-derived types expanded into readable object types via `typedoc-plugin-zod`. New
+  devDependencies: `typedoc`, `typedoc-plugin-zod` (not shipped to consumers).
+- The docs build treats warnings as errors (broken `{@link}`s, referenced-but-unexported types, bad
+  README paths) and runs in CI on every pull request.
+- New `docs.yml` workflow deploys the API reference to GitHub Pages
+  (https://planadecu.github.io/glassnode-api-node/) on every push to `main`; the README links to it.
+  Requires the repository's Pages source to be set to "GitHub Actions".
+- Docs: documented `GlassnodeApiError.status` and `GlassnodeApiError.statusText`, and added module
+  comments naming the two entry points after their import specifiers. No runtime change.
+
 ## 0.26.1
 
 - Tooling: new `scripts/record-fixtures.mjs` records real Glassnode API responses (asset metadata,

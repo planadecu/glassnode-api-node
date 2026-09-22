@@ -1,0 +1,54 @@
+name: Docs
+# Build the TypeDoc API reference and deploy it to GitHub Pages
+# (https://planadecu.github.io/glassnode-api-node/). One-time repo setting:
+# Settings → Pages → Build and deployment → Source: GitHub Actions.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time; let an in-progress deployment finish rather than cancel it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          standalone: true
+        env:
+          # The repo .npmrc sets ignore-scripts=true (supply-chain hardening), but the
+          # standalone pnpm (@pnpm/exe) needs its preinstall (setup.js picks the platform
+          # binary) or the pnpm bin is a stub that fails with "This: not found". Re-enable
+          # scripts for this bootstrap only; the project installs below still honor .npmrc.
+          npm_config_ignore_scripts: 'false'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run docs
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: api-docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

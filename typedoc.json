@@ -1,0 +1,25 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "glassnode-api",
+  "includeVersion": true,
+  "entryPoints": ["src/index.ts", "src/x402.ts"],
+  "tsconfig": "tsconfig.json",
+  "out": "api-docs",
+  "readme": "README.md",
+  "plugin": ["typedoc-plugin-zod"],
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "navigationLinks": {
+    "GitHub": "https://github.com/planadecu/glassnode-api-node",
+    "npm": "https://www.npmjs.com/package/glassnode-api"
+  },
+  "treatWarningsAsErrors": true,
+  "validation": {
+    "notExported": true,
+    "invalidLink": true,
+    "invalidPath": true,
+    "rewrittenLink": true,
+    "unusedMergeModuleWith": true,
+    "notDocumented": false
+  }
+}
