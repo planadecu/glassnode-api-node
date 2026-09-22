@@ -673,9 +673,10 @@ runtimes. If you do call Glassnode directly from a browser context, keep the def
 See the [examples directory](./examples/README.md) for detailed usage patterns.
 
 ```bash
+pnpm install          # in the repository root: the examples import the client from ../src (needs zod)
 cd examples
 npm install           # dotenv, ts-node and the x402 peers used by the examples
-cp .env.example .env  # add your API key
+cp .env.example .env  # add GLASSNODE_API_KEY (or the X402_* variables for the x402 example)
 npx ts-node ex.metadata.validation.ts
 ```
 

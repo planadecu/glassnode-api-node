@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.25.1
+
+- Docs: `examples/.env.example` now lists every example that uses `GLASSNODE_API_KEY` (adds
+  `ex.metric-stats.ts`) with the scripts' actual `ex.*` file names. The README "Examples" section
+  adds the root `pnpm install` step (the examples import the client from `../src`, which needs
+  `zod`) and mentions the `X402_*` variables, matching `examples/README.md`. No code change.
+
 ## 0.25.0
 
 - Types: `GlassnodeConfig['logger']` is now `Logger` (`(message: string, ...args: unknown[]) => void`)
