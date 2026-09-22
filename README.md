@@ -25,10 +25,12 @@ const btcPrice = await api.callMetric('/market/price_usd_close', { a: 'BTC' });
 - ✅ **Runtime-validated** — responses parsed and validated with Zod, so bad data fails fast
 - 🌐 **Universal** — Node.js (CJS + ESM) plus browser bundles (UMD + ESM); in web pages Glassnode's
   CORS policy applies — see [Browser](#browser)
-- 🔁 **Built-in retries** — automatic retry with exponential backoff for `429` and `5xx`
+- 🔁 **Built-in retries** — opt-in retry with exponential backoff and jitter for `429`, `5xx`,
+  network failures and timeouts (honouring `Retry-After`)
 - ⏹️ **Cancellable** — per-call `AbortSignal` and `timeout` on every method
 - 📦 **Bulk endpoints** — fetch every asset in a single call with `callBulkMetric()`
-- 🎯 **Typed errors** — every failure is a `GlassnodeError`; subclasses for HTTP, network/timeout, validation and config errors
+- 🎯 **Typed errors** — every failure is a `GlassnodeError`; subclasses for HTTP, network/timeout,
+  cancellation, response-validation, input, config and x402 payment errors
 - 🪶 **Lightweight** — a single runtime dependency (`zod`)
 - 🔌 **Pluggable** — inject a custom `fetch` implementation, a `logger` and structured
   [observability hooks](#observability) for metrics and tracing
@@ -66,6 +68,7 @@ npm install glassnode-api
 yarn add glassnode-api
 ```
 
+Requires Node.js >= 18 (it uses the global `fetch`), or a browser — see [Browser](#browser).
 You'll need a Glassnode API key — create one from your
 [Glassnode account](https://studio.glassnode.com/).
 
@@ -105,26 +108,31 @@ const data = await api.callMetric('/market/price_usd_close', {
 
 | Option           | Type                                            | Default                     | Description                                                                                                   |
 | ---------------- | ----------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `apiKey`         | `string`                                        | — (required unless `x402`)  | Your Glassnode API key                                                                                        |
-| `apiUrl`         | `string`                                        | `https://api.glassnode.com` | Base URL for the API                                                                                          |
+| `apiKey`         | `string`                                        | — (required unless `x402`)  | Your Glassnode API key (non-empty)                                                                            |
+| `apiUrl`         | `string` (URL)                                  | `https://api.glassnode.com` | Base URL for the API; with `x402` the default is `https://x402.glassnode.com` (an explicit value wins)        |
 | `apiKeyLocation` | `'query' \| 'header'`                           | `'query'`                   | Send the key as the `api_key` query parameter or the `X-Api-Key` header (server-side only; see below)         |
 | `x402`           | `boolean`                                       | `false`                     | Route through the paid x402 endpoint (see [Paid calls with x402](#paid-calls-with-x402))                      |
 | `logger`         | `(message: string, ...args: unknown[]) => void` | —                           | Callback for debug logging (e.g. `console.log`)                                                               |
 | `hooks`          | `GlassnodeHooks`                                | —                           | Structured `onRequest` / `onResponse` / `onRetry` / `onError` callbacks (see [Observability](#observability)) |
-| `fetch`          | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (or an x402-wrapped fetch)                                                        |
-| `maxRetries`     | `number`                                        | `0`                         | Retries for retryable errors (`429`, `5xx`)                                                                   |
+| `fetch`          | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (or an x402-wrapped fetch); required with `x402`                                  |
+| `maxRetries`     | `number`                                        | `0`                         | Retries for retryable failures (`429`, `5xx`, network errors, timeouts); a non-negative integer               |
 | `retryDelay`     | `number`                                        | `1000`                      | Base retry delay in ms (doubles each attempt, then full jitter)                                               |
-| `maxRetryDelay`  | `number`                                        | `30000`                     | Upper bound in ms for a single retry wait                                                                     |
-| `timeout`        | `number`                                        | — (no timeout)              | Per-request timeout in ms; each attempt aborts via `AbortSignal.timeout()`                                    |
+| `maxRetryDelay`  | `number`                                        | `30000`                     | Upper bound in ms for a single retry wait (also caps a `Retry-After`)                                         |
+| `timeout`        | `number`                                        | — (no timeout)              | Per-attempt timeout in ms; each attempt aborts via `AbortSignal.timeout()`                                    |
 
-The config is validated at construction time — an invalid config (e.g. an empty `apiKey`) throws a `GlassnodeConfigError` immediately. When `x402` is enabled, `apiKey` is optional but a payment-capable `fetch` is required. Failed requests throw a `GlassnodeApiError` whose message includes the server's error detail (also on `.detail`).
+The config is validated at construction time — an invalid config throws a `GlassnodeConfigError`
+immediately (e.g. an empty `apiKey`, a non-URL `apiUrl`, a misspelled hook name, or a
+`timeout`/`retryDelay`/`maxRetryDelay` that is not a positive integer up to `2147483647` ms, the
+largest timer delay). When `x402` is enabled, `apiKey` is optional but a payment-capable `fetch` is
+required. A non-2xx response rejects with a `GlassnodeApiError` whose message includes the server's
+error detail (also on `.detail`); see [Error Handling](#error-handling) for every failure type.
 
 ### Keeping the API key out of URLs
 
 By default the key is sent as the `api_key` query parameter, so it is part of every request URL —
 visible to a custom `fetch`, tracing/instrumentation, proxies and access logs, and to any transport
-error that quotes the URL. (The client's own `logger` output and error messages always mask it.)
-On a server, set `apiKeyLocation: 'header'` to send it as the `X-Api-Key` header instead; the URL
+error that quotes the URL. (The client's own `logger` output, hook events and error messages
+always mask it.) On a server, set `apiKeyLocation: 'header'` to send it as the `X-Api-Key` header instead; the URL
 then carries no key at all:
 
 ```typescript
@@ -132,8 +140,8 @@ const api = new GlassnodeAPI({ apiKey: process.env.GLASSNODE_API_KEY, apiKeyLoca
 ```
 
 With `'header'`, a custom `fetch` is called as `fetch(url, { headers: { 'X-Api-Key': key } })`
-(plus `signal` when a `timeout` or a per-call `signal` is set) and must forward `init.headers` — the fetch returned by
-`createX402Fetch()` does. No header is sent when there is no `apiKey` (e.g. `x402` mode).
+(plus `signal` when a `timeout` or a per-call `signal` is set) and must forward `init.headers` — the
+fetch returned by `createX402Fetch()` does. No header is sent when there is no `apiKey` (e.g. `x402` mode).
 
 `'header'` does **not** work in browsers: a custom header triggers a CORS preflight, and the
 Glassnode API's `Access-Control-Allow-Headers` does not list `X-Api-Key`, so the browser blocks the
@@ -156,7 +164,9 @@ cancel the call or give it its own per-attempt timeout — see
 [Cancellation and per-call timeouts](#cancellation-and-per-call-timeouts). To pass `options`
 without query parameters, use `undefined` (or `{}`) for `params`.
 
-All response types are exported and fully typed.
+All response types (and their Zod schemas, e.g. `AssetMetadataResponseSchema`) are exported and
+fully typed. `getMetricStats` percentiles are durations in seconds, not timestamps — see
+[Timestamps](#timestamps).
 
 Arguments are checked before any request is sent; invalid input rejects with a
 `GlassnodeInputError` and no network call is made:
@@ -270,8 +280,9 @@ Metrics with other shapes (e.g. an array `v`) can use any Zod schema of your own
 
 ## Timestamps
 
-The API sends every time value as unix **seconds**, and the client passes them through as plain
-`number`s — with **one exception**, `MetricMetadata.modified`, which is converted to a `Date`:
+The API sends every point in time (timestamp) as unix **seconds**, and the client passes them
+through as plain `number`s — with **one exception**, `MetricMetadata.modified`, which is converted
+to a `Date`:
 
 | Field                                                  | Type                 |
 | ------------------------------------------------------ | -------------------- |
@@ -289,6 +300,17 @@ const [latest] = (await api.callBulkMetric('/market/marketcap_usd')).slice(-1);
 const when = new Date(latest.t * 1000);
 ```
 
+**Durations are not timestamps.** The data-lag percentiles from `getMetricStats()` —
+`lag[n].resolution[interval].p50` / `.p90` / `.p95` / `.p99`, with `lag[n].unit` (`"seconds"`) —
+are **lengths of time** (how far a metric's data trails behind), not points in time. Don't pass them
+to `new Date(p * 1000)`; convert by their `unit` instead:
+
+```typescript
+const { lag } = await api.getMetricStats('/market/price_usd_close', { a: 'BTC' });
+const p50 = lag[0]?.resolution['24h']?.p50; // e.g. 3600 (seconds of lag), or undefined
+if (p50 !== undefined && lag[0]?.unit === 'seconds') console.log(`${p50 / 3600} h behind`);
+```
+
 ## Error Handling
 
 Every error the client throws is an instance of `GlassnodeError`, so a single `instanceof` check
@@ -297,16 +319,16 @@ matching needed.
 
 ### Error types
 
-| Class                      | Thrown when                                                                                                                                                                                                                         | Useful properties                                                                                                                                                              |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GlassnodeError`           | Base class of all the errors below — catch this to handle any library failure                                                                                                                                                       | `message`, `cause`                                                                                                                                                             |
-| `GlassnodeApiError`        | The API answered with a non-2xx HTTP status (e.g. `401`, `404`, `429`, `5xx`; with x402, only before a payment was sent, or `402` after it)                                                                                         | `status`, `statusText`, `detail` (server message), `isRetryable` (429 / 5xx)                                                                                                   |
-| `GlassnodeNetworkError`    | No HTTP response: connection/DNS failure, or the per-request `timeout` firing. Retried when `maxRetries` > 0                                                                                                                        | `timedOut` (`true` when `timeout` fired), `cause` (the original fetch error)                                                                                                   |
-| `GlassnodeAbortError`      | The call was cancelled through the per-call `signal` (already aborted, or aborted mid-request or during a retry wait). Never retried                                                                                                | `cause` (the signal's `reason`, e.g. a `DOMException` named `AbortError`, or `TimeoutError` for `AbortSignal.timeout()`)                                                       |
-| `GlassnodeValidationError` | A `2xx` response was unusable: the body was not valid JSON, or did not match the expected schema (or `callMetric`'s `schema`). Never retried                                                                                        | `endpoint` (API path, e.g. `/v1/metadata/assets`), `cause` (`ZodError` / `SyntaxError`)                                                                                        |
-| `GlassnodeConfigError`     | The options passed to `new GlassnodeAPI(...)` are invalid (e.g. empty `apiKey`, `x402` without `fetch`), or `createX402Fetch` cannot load its optional peer dependencies                                                            | `message` (lists the invalid fields), `cause` (`ZodError` / import error)                                                                                                      |
-| `GlassnodeInputError`      | A method argument is invalid (malformed metric path, a param value that cannot be sent, `f` other than `json`, `api_key`/`path` in `params`, a bad `maxPaymentPerCall`). Raised before any request; never retried                   | `argument` (`metricPath`, `params.<name>`, `options.signal`, `options.timeout`, `maxPaymentPerCall`)                                                                           |
-| `GlassnodePaymentError`    | x402 only: the payment could not be made (price above `maxPaymentPerCall`, signer failed, unusable `402`), or the paid request failed in transit or got a non-2xx status other than `402` after the payment was sent. Never retried | `paymentMayHaveSettled` (`true`: a payment was sent and may have been charged; do not blindly retry), `status` (HTTP status of the paid response, if any), `timedOut`, `cause` |
+| Class                      | Thrown when                                                                                                                                                                                                                                         | Useful properties                                                                                                                                                              |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GlassnodeError`           | Base class of all the errors below — catch this to handle any library failure                                                                                                                                                                       | `message`, `cause`                                                                                                                                                             |
+| `GlassnodeApiError`        | The API answered with a non-2xx HTTP status (e.g. `401`, `404`, `429`, `5xx`; with x402, only before a payment was sent, or `402` after it)                                                                                                         | `status`, `statusText`, `detail` (server message), `isRetryable` (429 / 5xx)                                                                                                   |
+| `GlassnodeNetworkError`    | No HTTP response: connection/DNS failure (in a browser also a CORS block), or the per-attempt `timeout` firing. Retried when `maxRetries` > 0                                                                                                       | `timedOut` (`true` when `timeout` fired), `cause` (the original fetch error)                                                                                                   |
+| `GlassnodeAbortError`      | The call was cancelled through the per-call `signal` (already aborted, or aborted mid-request or during a retry wait). Never retried                                                                                                                | `cause` (the signal's `reason`, e.g. a `DOMException` named `AbortError`, or `TimeoutError` for `AbortSignal.timeout()`)                                                       |
+| `GlassnodeValidationError` | A `2xx` response was unusable: the body was not valid JSON, or did not match the expected schema (or `callMetric`'s `schema`). Never retried                                                                                                        | `endpoint` (API path, e.g. `/v1/metadata/assets`), `cause` (`ZodError` / `SyntaxError`)                                                                                        |
+| `GlassnodeConfigError`     | The options passed to `new GlassnodeAPI(...)` are invalid (e.g. empty `apiKey`, `x402` without `fetch`, an unknown hook name), or `createX402Fetch` cannot load its optional peer dependencies                                                      | `message` (lists the invalid fields), `cause` (`ZodError` / import error)                                                                                                      |
+| `GlassnodeInputError`      | A method argument is invalid (malformed metric path, a param value that cannot be sent, `f` other than `json`, `api_key`/`path` in `params`, bad per-call options or `schema`, a bad `maxPaymentPerCall`). Raised before any request; never retried | `argument` (`metricPath`, `params`, `params.<name>`, `options`, `options.signal`, `options.timeout`, `options.schema`; from the x402 helpers `maxPaymentPerCall` or `value`)   |
+| `GlassnodePaymentError`    | x402 only: the payment could not be made (price above `maxPaymentPerCall`, signer failed, unusable `402`), or the paid request failed in transit or got a non-2xx status other than `402` after the payment was sent. Never retried                 | `paymentMayHaveSettled` (`true`: a payment was sent and may have been charged; do not blindly retry), `status` (HTTP status of the paid response, if any), `timedOut`, `cause` |
 
 **The API key never appears in an error's `message`, `detail`, `statusText` or other string
 properties.** Text that comes from outside the library — a server or proxy error body or status
@@ -363,23 +385,28 @@ try {
 
 ## Retries
 
-Enable automatic retries with exponential backoff for rate limits (`429`) and server errors (`5xx`):
+Retries are off by default (`maxRetries: 0`). Enable them for rate limits (`429`), server errors
+(`5xx`) and transport failures — connection/DNS errors and a per-attempt `timeout` firing
+(`GlassnodeNetworkError`):
 
 ```typescript
 const api = new GlassnodeAPI({
   apiKey: 'YOUR_API_KEY',
   maxRetries: 3, // retry up to 3 times
-  retryDelay: 1000, // base delay; grows 1s → 2s → 4s …
+  retryDelay: 1000, // base delay; the cap grows 1s → 2s → 4s …
   maxRetryDelay: 30000, // cap a single wait at 30s (default)
 });
 ```
 
-Each retry wait is the exponential delay capped at `maxRetryDelay`, then **full-jittered** (a random
-value between 0 and that cap) to avoid synchronised retries across clients. A `Retry-After` header on a
-`429` is honoured for the next wait. A malformed `200` body is **not** retried (it isn't a transient
-error) — it fails immediately.
+Each retry wait is the exponential delay (`retryDelay * 2^(n-1)` before retry `n`) capped at
+`maxRetryDelay`, then **full-jittered** (a random value between 0 and that cap) to avoid synchronised
+retries across clients. When a retried `429`/`5xx` response carries a `Retry-After` header (seconds or
+an HTTP date), that value is used for the next wait instead — capped at `maxRetryDelay`, not
+jittered. A malformed `200` body is **not** retried (it isn't a transient error) — it fails
+immediately with a `GlassnodeValidationError`.
 
-Non-retryable errors (e.g. `401`, `404`) fail immediately without retrying.
+Non-retryable errors (e.g. `401`, `404`, a caller abort, invalid input) fail immediately without
+retrying. When every attempt fails, the call rejects with the last attempt's error.
 
 With [x402](#paid-calls-with-x402), a connection failure, timeout, `429` or `5xx` is retried only
 while no payment has been sent. Once a signed payment has gone out, a failure — whatever the HTTP
@@ -428,7 +455,8 @@ await api.callMetric('/market/mvrv', { a: 'BTC' }, { signal: AbortSignal.timeout
   itself (`AbortSignal.any()` needs Node 20.3+) and removes its listeners from your signal after
   every attempt, so one long-lived signal can be reused across many calls.
 - A custom `fetch` receives the signal as `init.signal` and must honor it for an in-flight request
-  to be cancelled. With no `options` (or `{}`), a custom `fetch` is called exactly as before.
+  to be cancelled. With no signal and no timeout (per-call or config) and the key in the query
+  string, a custom `fetch` is called with the URL alone: `fetch(url)`.
 - **x402:** the signal reaches the x402 fetch. Aborting before a payment was sent rejects with
   `GlassnodeAbortError` (nothing paid). Aborting after the paid request went out rejects with the
   `GlassnodePaymentError` (`paymentMayHaveSettled: true`) instead, since the payment may have settled;
@@ -436,8 +464,8 @@ await api.callMetric('/market/mvrv', { a: 'BTC' }, { signal: AbortSignal.timeout
 
 ## Observability
 
-The `logger` option prints two free-text debug lines (`API call: <url>` before each attempt and
-`Retry n/m after Xms` before each retry wait). For metrics, tracing or structured logs, pass
+The `logger` option gets two free-text debug lines: `logger('API call:', url)` before each attempt
+(the URL with `api_key=***`) and `logger('Retry n/m after Xms')` before each retry wait. For metrics, tracing or structured logs, pass
 `hooks` instead (or as well) — each receives one structured event object:
 
 ```typescript
@@ -447,6 +475,7 @@ const api = new GlassnodeAPI({
   hooks: {
     onRequest: (e) =>
       console.debug('glassnode →', e.callId, e.endpoint, `${e.attempt}/${e.maxAttempts}`),
+    // `histogram` stands for your metrics library (e.g. a prom-client Histogram)
     onResponse: (e) => histogram.observe({ endpoint: e.endpoint, status: e.status }, e.durationMs),
     onRetry: (e) =>
       console.warn(`retry #${e.attempt} (${e.reason}) in ${e.delayMs}ms`, e.error.message),
@@ -477,6 +506,11 @@ an `onResponse` with `ok: true` and no `onError`; a `200` whose body fails valid
   neither the `X-Api-Key` header nor x402 payment headers or signatures. `error` is the same object
   the call rejects with: its `message` and other string fields are masked, but, as for any
   `GlassnodeError`, its `.cause` is the original error and is not.
+- **Treat events as read-only.** Each hook call gets a fresh event object, but `event.error` (in
+  `onError` and `onRetry`) is the **live** error object: in `onError` it is the very object the
+  caller's `await` rejects with. The client does not freeze or copy it, so a hook that assigns to
+  it (e.g. rewrites `error.message` or deletes `.cause`) changes what the caller sees. Copy what you
+  need instead of mutating it.
 - The `logger` output is unchanged by `hooks`.
 
 ## Bulk Metrics
@@ -521,11 +555,17 @@ const mvrv = await api.callMetric('/market/mvrv', { a: 'BTC', i: '24h' });
 
 **`createX402Fetch(options)`**
 
-| Option              | Type           | Default            | Description                      |
-| ------------------- | -------------- | ------------------ | -------------------------------- |
-| `account`           | `LocalAccount` | — (**required**)   | viem account that signs payments |
-| `maxPaymentPerCall` | `string`       | `'0.06'`           | Per-call USDC spend ceiling      |
-| `fetch`             | `typeof fetch` | `globalThis.fetch` | Base fetch to wrap               |
+| Option              | Type                | Default            | Description                                                                        |
+| ------------------- | ------------------- | ------------------ | ---------------------------------------------------------------------------------- |
+| `account`           | `X402SignerAccount` | — (**required**)   | Signer (`address` + `signTypedData`); a viem account such as `privateKeyToAccount` |
+| `maxPaymentPerCall` | `string`            | `'0.06'`           | Per-call USDC spend ceiling, a decimal string (e.g. `'0.06'`)                      |
+| `fetch`             | `typeof fetch`      | `globalThis.fetch` | Base fetch to wrap                                                                 |
+
+It returns a `Promise<typeof fetch>` that signs payments for Base mainnet (`eip155:8453`) and Base
+Sepolia (`eip155:84532`). `glassnode-api/x402` also exports the `X402FetchOptions` and
+`X402SignerAccount` types and two helpers: `usdcDecimalToAtomic(value)` (USDC decimal string →
+6-decimal atomic `bigint`) and `createMaxAmountPolicy(maxAtomic)` (the x402 payment policy that
+enforces the ceiling).
 
 > **Spend safety:** `maxPaymentPerCall` caps a **single** request — it is **not** a cumulative budget, so
 > an agent loop can still spend within that ceiling repeatedly. Use a **dedicated, funded-but-limited**
@@ -543,7 +583,7 @@ const mvrv = await api.callMetric('/market/mvrv', { a: 'BTC', i: '24h' });
 
 - The server's price is above `maxPaymentPerCall`, the signer throws, or the `402` carries no usable
   payment requirements → `GlassnodePaymentError` with `paymentMayHaveSettled: false` (x402's error on
-  `.cause`). **Never retried**, even with `maxRetries` > 0: nothing was paid, and the same request
+  `.cause`; `true` only if a signed payment had already gone out earlier in the same call). **Never retried**, even with `maxRetries` > 0: nothing was paid, and the same request
   would fail again.
 - The **paid** request fails in transit (connection error, `timeout`, or your per-call `signal`
   aborting it) → `GlassnodePaymentError` with `paymentMayHaveSettled: true`. The transport error (or
@@ -560,8 +600,9 @@ const mvrv = await api.callMetric('/market/mvrv', { a: 'BTC', i: '24h' });
 - The server answers `402` even after payment (e.g. insufficient USDC balance, settlement refused)
   → `GlassnodeApiError` with `status` 402 (not retried). In x402 a `402` is the server's explicit
   "payment not accepted" answer, so it stays an API error.
-- Invalid `maxPaymentPerCall` → `GlassnodeInputError`; `@x402/fetch` / `@x402/evm` / `viem` not
-  installed → `GlassnodeConfigError`. Both are thrown by `createX402Fetch()` itself.
+- Invalid `maxPaymentPerCall` → `GlassnodeInputError` (`argument: 'maxPaymentPerCall'`);
+  `@x402/fetch` / `@x402/evm` / `viem` not installed → `GlassnodeConfigError`. `createX402Fetch()`
+  itself rejects with both, before any request.
 
 ```typescript
 try {
@@ -579,7 +620,8 @@ try {
   `api.glassnode.com`.
 - **Other endpoints:** target a non-default x402 endpoint (e.g. a testnet) by passing its URL as
   `apiUrl`.
-- **Browser** signing is not supported yet (planned).
+- **Browser** signing is not supported yet (planned); the browser bundles do not include
+  `glassnode-api/x402`.
 
 ## Browser
 
@@ -629,19 +671,25 @@ See the [examples directory](./examples/README.md) for detailed usage patterns.
 
 ```bash
 cd examples
+npm install           # dotenv, ts-node and the x402 peers used by the examples
 cp .env.example .env  # add your API key
-pnpm dlx ts-node ex.metadata.validation.ts
+npx ts-node ex.metadata.validation.ts
 ```
 
 ## Development
 
 ```bash
 pnpm install                              # install dependencies
-pnpm run build && pnpm run build:browser  # build Node.js + browser bundles
-pnpm test                                 # run tests (Vitest)
+pnpm run build && pnpm run build:browser  # build Node.js (CJS + ESM) + browser bundles
+pnpm test                                 # run tests (Vitest); test:coverage enforces thresholds
 pnpm run lint                             # lint
 pnpm run format                           # format
+pnpm exec tsc -p tsconfig.test.json --noEmit  # type-check the tests
+pnpm exec tsc -p tsconfig.examples.json       # type-check the examples
 ```
+
+Developing needs Node.js 24 (see `.nvmrc`; Vitest needs Node >= 22.12). The published package
+itself supports Node.js >= 18.
 
 ## License
 

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.24.1
+
+- Docs: accuracy pass over the README against the code. Retries: `maxRetries` also retries
+  transport failures (network errors, per-attempt timeouts), not only `429`/`5xx`, and a
+  `Retry-After` is honoured on any retried `429`/`5xx` (capped at `maxRetryDelay`, not jittered),
+  not only on a `429`. Configuration: the `apiUrl` default with `x402`, the `2147483647` ms cap on
+  `timeout`/`retryDelay`/`maxRetryDelay`, and that `fetch` is required with `x402`. Error table:
+  the full `GlassnodeInputError.argument` list (`params`, `options`, `options.schema`, `value`) and
+  the missing subclasses in the feature list. x402: `createX402Fetch`'s `account` is an
+  `X402SignerAccount` (not viem's `LocalAccount` type), and the `usdcDecimalToAtomic` /
+  `createMaxAmountPolicy` helpers are listed. Also the exact `logger` call shape, when a custom
+  `fetch` is called with the URL alone, the Node.js >= 18 requirement, the examples install step
+  and the type-check commands under Development.
+- Docs: "Timestamps" now says the `getMetricStats` lag percentiles (`p50`…`p99`, `unit`
+  `"seconds"`) are durations, not timestamps, and must not be passed to `new Date(p * 1000)`
+  (also in the `LagPercentilesSchema` and module JSDoc).
+- Docs: hook events must be treated as read-only — `event.error` is the live error object the
+  caller receives, so a hook that mutates it changes the caller's error (README and
+  `GlassnodeHooks` JSDoc).
+- Docs: CHANGELOG 0.21.3 now also lists the second symptom of that bug (a config `timeout` between
+  2^31 and 2^32 − 1 ms silently made every call time out after ~1 ms).
+- Docs: CLAUDE.md's API Client section lists every config option with its default, plus the
+  project layout, check commands, CI jobs and browser bundle details. No code or type change.
+
 ## 0.24.0
 
 - Added: **repeated query parameters.** An array param value is sent as the parameter repeated
@@ -106,9 +130,12 @@
 - Fixed: the config options `timeout`, `retryDelay` and `maxRetryDelay` are now capped at
   2147483647 ms (2^31 − 1, the largest timer delay), the same as the per-call `timeout`. A larger
   value now throws a `GlassnodeConfigError` when the client is constructed. Before, an oversized
-  `timeout` made every call throw a raw `RangeError` from `AbortSignal.timeout()`, and an oversized
-  `maxRetryDelay` let a long `Retry-After` overflow the retry timer, so the client retried after
-  about 1 ms instead of waiting.
+  `timeout` failed in one of two ways: from 2^32 ms up it made every call throw a raw `RangeError`
+  from `AbortSignal.timeout()`, while a value between 2^31 and 2^32 − 1 ms did not throw at all but
+  overflowed the timer, so every call silently timed out after about 1 ms (a retryable
+  `GlassnodeNetworkError` with `timedOut: true`). An oversized `maxRetryDelay` let a long
+  `Retry-After` overflow the retry timer, so the client retried after about 1 ms instead of
+  waiting. (The second `timeout` symptom was added to this entry in 0.24.1.)
 
 ## 0.21.2
 

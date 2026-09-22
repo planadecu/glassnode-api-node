@@ -1,9 +1,11 @@
 /**
  * Metadata response types
  *
- * Timestamps: the API sends every time value as unix **seconds** (a number). The schemas
+ * Timestamps: the API sends every point in time as unix **seconds** (a number). The schemas
  * pass them through unchanged — with one exception, `MetricMetadata.modified`, which is
  * converted to a JS `Date`. Convert the others yourself with `new Date(seconds * 1000)`.
+ * Durations are not timestamps: the lag percentiles of {@link MetricStatsResponse} are lengths of
+ * time in their entry's `unit` (e.g. seconds) and must not be passed to `new Date()`.
  */
 import { z } from 'zod';
 
@@ -287,6 +289,10 @@ export type MetricListResponse = z.infer<typeof MetricListResponseSchema>;
 /**
  * Lag percentiles schema (p50/p90/p95/p99 for one resolution).
  *
+ * Each value is a **duration** — how far the metric's data lags behind — in the `unit` of the
+ * enclosing {@link MetricLagEntrySchema} entry (e.g. `"seconds"`), not a unix timestamp: do not
+ * convert it with `new Date(p * 1000)`.
+ *
  * Each percentile is optional: if the API omits one for a resolution, the rest of the
  * stats still parse and the missing percentile is `undefined`.
  */
@@ -309,7 +315,7 @@ export type LagPercentiles = z.infer<typeof LagPercentilesSchema>;
  */
 export const MetricLagEntrySchema = z.object({
   /**
-   * Measurement unit (e.g. "seconds")
+   * Unit of the lag percentile durations in `resolution` (e.g. "seconds")
    */
   unit: z.string(),
 

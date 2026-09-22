@@ -64,7 +64,11 @@ export const GlassnodeConfigSchema = z
      */
     apiKeyLocation: z.enum(['query', 'header']).default('query'),
 
-    /** Base URL for the Glassnode API. An explicit value always wins over the `x402` preset. */
+    /**
+     * Base URL for the Glassnode API. Default `https://api.glassnode.com`, or
+     * `https://x402.glassnode.com` when `x402` is set. An explicit value always wins over the
+     * `x402` preset.
+     */
     apiUrl: z.string().url().optional(),
 
     /** Route requests through the x402 paid endpoint (`https://x402.glassnode.com`). */
@@ -83,7 +87,10 @@ export const GlassnodeConfigSchema = z
     /** Optional custom fetch function (e.g. an x402-wrapped fetch, or for testing). */
     fetch: z.function().optional(),
 
-    /** Maximum number of retries for retryable errors (429 and 5xx). */
+    /**
+     * Maximum number of retries for retryable failures: a `429`/`5xx` response, or a transport
+     * failure (`GlassnodeNetworkError`, including a per-attempt `timeout`). Default 0 (no retries).
+     */
     maxRetries: z.number().int().nonnegative().default(0),
 
     /** Base delay in milliseconds between retries (doubles each attempt, then full jitter). */

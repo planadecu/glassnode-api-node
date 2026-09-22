@@ -5,9 +5,13 @@ This document provides context for Claude when working with this project.
 ## Project Structure
 
 - `/src` - Source code
+  - `/src/index.ts` - main entry (`glassnode-api`): client, errors, types
+  - `/src/x402.ts` - separate subpath entry (`glassnode-api/x402`): `createX402Fetch` and helpers
   - `/src/types` - TypeScript type definitions (Zod schemas + inferred types)
 - `/test` - Test files (Vitest)
-- `/examples` - Example usage patterns
+- `/examples` - Example usage patterns (own `package.json`; type-checked via `tsconfig.examples.json`)
+- `/scripts` - `smoke-timeout.mjs`, the plain-Node runtime smoke run on Node 18 in CI
+- `/typecheck/x402-node16` - consumer type-check fixture (node16 resolution, `skipLibCheck: false`)
 - `/dist` - Compiled output (not checked into git)
 
 ## Development Workflow
@@ -15,9 +19,13 @@ This document provides context for Claude when working with this project.
 - Use pnpm as package manager
 - Run tests with `pnpm test` (Vitest, single run); `pnpm run test:watch` and `pnpm run test:coverage` are also available
 - Lint code with `pnpm run lint`
-- Format code with `pnpm run format`
+- Format code with `pnpm run format` (check only: `npx prettier --check .`)
 - Build the project with `pnpm run build`
 - Build browser bundles with `pnpm run build:browser`
+- Type-check tests with `pnpm exec tsc -p tsconfig.test.json --noEmit` (Vitest does not type-check)
+  and examples with `pnpm exec tsc -p tsconfig.examples.json`
+- The Husky pre-commit hook runs `pnpm test`, `lint-staged` (ESLint + Prettier + related tests on
+  staged files) and `pnpm run build`
 
 ### Node.js versions — two distinct baselines
 
@@ -29,10 +37,11 @@ Keep these separate; they answer different questions:
   is pinned to the **floor** (`^18`), not the latest, so the compiler rejects any API newer
   than Node 18. Do **not** bump `@types/node` to track the dev runtime — bump it only if the
   minimum supported Node is intentionally raised (a breaking change → major/`engines` bump).
-- **Developers of this repo** run **Node.js 24** (`.nvmrc`, CI workflows). The dev toolchain
+- **Developers of this repo** run **Node.js 24** (`.nvmrc`, the main CI and publish jobs). The dev toolchain
   sets the floor here: `vitest` 5 requires Node `>= 22.12`, so the test suite cannot run on
   Node 18/20 — that constraint is dev-only and never reaches consumers (vitest is a
-  devDependency).
+  devDependency). The CI `compat-node18` job proves the consumer floor instead: on Node 18 it
+  builds, `require`s the CJS entry and runs `scripts/smoke-timeout.mjs`.
 
 ## Coding Standards
 
@@ -52,24 +61,40 @@ Keep these separate; they answer different questions:
 
 ## API Client
 
-The main class is `GlassnodeAPI` which takes a configuration object:
+The main class is `GlassnodeAPI` which takes a configuration object (validated with Zod in the
+constructor; an invalid config throws `GlassnodeConfigError`):
 
-- `apiKey` (required) - Glassnode API key
-- `apiUrl` (optional) - Base URL, defaults to `https://api.glassnode.com`
+- `apiKey` (required unless `x402`) - Glassnode API key (non-empty string)
 - `apiKeyLocation` (optional) - `'query'` (default, `api_key` query param) or `'header'` (`X-Api-Key`
   header, keeps the key out of URLs). `'header'` is server-side only: the API's CORS preflight does
-  not allow `X-Api-Key`, so browsers block it. With `'header'`, `fetchFn` gets `(url, { headers })`
-  (+ `signal` if `timeout`); with no key, no header is sent.
+  not allow `X-Api-Key`, so browsers block it. With `'header'`, a custom `fetch` gets
+  `(url, { headers })` (+ `signal` when a timeout or per-call signal is set); with no key, no header
+  is sent.
+- `apiUrl` (optional) - Base URL, defaults to `https://api.glassnode.com`, or
+  `https://x402.glassnode.com` when `x402` is set; an explicit value always wins
+- `x402` (optional) - Route through the paid x402 endpoint (default `false`); requires `fetch` (an
+  x402-capable one, from `createX402Fetch` in `glassnode-api/x402`)
 - `logger` (optional) - Callback for debug logging (e.g. `console.log`)
-- `fetch` (optional) - Custom fetch function for testing or custom HTTP behavior
-- `maxRetries` (optional) - Number of retries for 429/5xx errors (default 0)
-- `retryDelay` (optional) - Base delay in ms between retries (default 1000, doubles each attempt, then full jitter)
-- `maxRetryDelay` (optional) - Upper bound in ms for a single retry wait (default 30000)
-- `timeout` (optional) - Per-request timeout in ms; each attempt aborts via `AbortSignal.timeout()` (default none)
 - `hooks` (optional) - Structured observability callbacks `{ onRequest, onResponse, onRetry, onError }`
-  (types in `src/types/hooks.ts`). Called synchronously, never awaited; a throwing/rejecting hook is
-  swallowed (reported to `logger`). Payloads carry a per-call `callId`, the redacted URL and no
-  headers — the API key must never reach a hook payload.
+  (types in `src/types/hooks.ts`; strict, so an unknown hook name throws). Called synchronously,
+  never awaited; a throwing/rejecting hook is swallowed (reported to `logger`). Payloads carry a
+  per-call `callId`, the redacted URL and no headers — the API key must never reach a hook payload.
+  Events are read-only by contract, but `event.error` is the live error the caller receives.
+- `fetch` (optional) - Custom fetch function for testing or custom HTTP behavior (default
+  `globalThis.fetch`)
+- `maxRetries` (optional) - Number of retries for 429/5xx responses and transport failures (network
+  errors, per-attempt timeouts); non-negative integer, default 0
+- `retryDelay` (optional) - Base delay in ms between retries (default 1000, doubles each attempt,
+  capped at `maxRetryDelay`, then full jitter; a `Retry-After` on a retried response is used
+  instead, capped but not jittered)
+- `maxRetryDelay` (optional) - Upper bound in ms for a single retry wait (default 30000)
+- `timeout` (optional) - Per-attempt timeout in ms; each attempt aborts via `AbortSignal.timeout()`
+  (default none)
+
+`timeout`, `retryDelay` and `maxRetryDelay` must be positive integers up to 2147483647 ms (2^31 − 1,
+the largest timer delay). Every method also takes optional per-call options as its last argument,
+`{ signal?, timeout? }` (`callMetric` also accepts a Zod `schema`). The public API is what
+`src/index.ts` and `src/x402.ts` export; README.md documents it for users and must stay in sync.
 
 ## Versioning
 
@@ -92,12 +117,28 @@ Follow [semver](https://semver.org/):
   externalized; the `import` entry). A generated `dist/esm/package.json` (`{"type":"module"}`) marks
   the folder as ESM. `exports` uses per-condition `types` (ESM `.d.ts` for `import`, CJS for
   `require`) — verified with `publint` + `@arethetypeswrong/cli` in CI.
-- **Browser**: Rollup produces UMD (+ a minified ESM) bundle in `dist/` for the `browser`/`module`
-  fields; source maps are generated `hidden` and not published.
+- **Browser**: Rollup (`tsconfig.browser.json`) produces minified UMD
+  (`dist/glassnode-api.umd.min.js`, global `GlassnodeAPI`, the `browser` field) and minified ESM
+  (`dist/glassnode-api.esm.min.js`) bundles from `src/index.ts`, with `zod` bundled in and
+  `src/x402.ts` excluded. The `module` field points at the unbundled `dist/esm/index.js`, not a
+  Rollup bundle. Source maps are generated `hidden` and not published.
 - Config: `tsconfig.json` (CJS), `tsconfig.esm.json` (ESM), `tsconfig.browser.json` (browser),
   `tsconfig.test.json` (tests/IDE), `tsconfig.examples.json` (type-checks `examples/` against
-  `src/` using root deps; CI runs `pnpm exec tsc -p tsconfig.examples.json`). The package sets
-  `"type": "commonjs"`.
+  `src/` using root deps), `typecheck/x402-node16/tsconfig.json` (consumer fixture). The package
+  sets `"type": "commonjs"`.
+
+## CI
+
+`.github/workflows/ci.yml` runs on pull requests to `main`:
+
+- `test` (Node 24): lint, `test:coverage` (thresholds in `vitest.config.ts`), `tsc` on
+  `tsconfig.test.json` and `tsconfig.examples.json`, `build`, `build:browser`, the
+  `typecheck/x402-node16` consumer check, `publint` and `@arethetypeswrong/cli --pack .`.
+- `compat-node18` (Node 18): build, CJS `require` smoke, `scripts/smoke-timeout.mjs`.
+
+The publish workflow only re-runs lint, `test:coverage`, the test type-check, `build` and
+`build:browser` before publishing (not the examples or packaging checks), so a direct commit to
+`main` must pass the full list locally first.
 
 ## Publishing
 

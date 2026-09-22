@@ -5,6 +5,10 @@ import type { GlassnodeError } from '../errors.js';
  * (`api_key=***`) and no request or response headers are exposed (so neither the `X-Api-Key`
  * header nor x402 payment headers). The `error` of an event is the same object the call rejects
  * with, so the caveat on {@link GlassnodeError} applies: its `.cause` is not redacted.
+ *
+ * Treat every event as **read-only**. Each hook call gets a fresh event object, but `error` is the
+ * live error (in `onError`, the very object the caller's promise rejects with); it is neither
+ * frozen nor copied, so a hook that mutates it changes what the caller sees.
  */
 export interface GlassnodeHookEventBase {
   /**
@@ -53,7 +57,10 @@ export interface GlassnodeRetryEvent extends GlassnodeHookEventBase {
   reason: GlassnodeRetryReason;
   /** HTTP status of the failed attempt, for `reason: 'status'`. */
   status?: number;
-  /** The failed attempt's error (a `GlassnodeApiError` or `GlassnodeNetworkError`). */
+  /**
+   * The failed attempt's error (a `GlassnodeApiError` or `GlassnodeNetworkError`). The live
+   * object, not a copy — read-only.
+   */
   error: GlassnodeError;
   /** Milliseconds the client waits before the next attempt (`attempt + 1`). */
   delayMs: number;
@@ -63,7 +70,10 @@ export interface GlassnodeRetryEvent extends GlassnodeHookEventBase {
 
 /** `onError`: the call failed — fired once per call, with the error it rejects with. */
 export interface GlassnodeErrorEvent extends GlassnodeHookEventBase {
-  /** The error the call rejects with (same object). */
+  /**
+   * The error the call rejects with — the same live object the caller receives, so do not mutate
+   * it (a change would be visible to the caller).
+   */
   error: GlassnodeError;
   /** HTTP status behind the error, when there is one (`GlassnodeApiError`, `GlassnodePaymentError`). */
   status?: number;
@@ -79,7 +89,8 @@ export interface GlassnodeErrorEvent extends GlassnodeHookEventBase {
  * an async hook does not delay the request. A hook that throws, or returns a promise that
  * rejects, never changes the call's outcome or retries: the error is swallowed (and passed to the
  * `logger`, if one is configured, as `'Hook <name> failed:', error`). Keep hooks fast — offload
- * slow work (e.g. exporting telemetry) instead of doing it inline.
+ * slow work (e.g. exporting telemetry) instead of doing it inline. Events are read-only: see
+ * {@link GlassnodeHookEventBase}.
  *
  * Hooks fire only once a call has passed argument validation: a `GlassnodeInputError` or a
  * `GlassnodeConfigError` fires none.
