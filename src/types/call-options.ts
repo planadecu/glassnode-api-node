@@ -1,3 +1,5 @@
+import type { ZodType } from 'zod';
+
 /**
  * Per-call options, accepted as the optional **last** argument of every `GlassnodeAPI` method
  * (e.g. `api.callMetric(path, params, { signal, timeout })`, `api.getMetricList({ signal })`).
@@ -24,4 +26,16 @@ export interface CallOptions {
    * `GlassnodeNetworkError` with `timedOut: true`). A positive integer up to 2147483647.
    */
   timeout?: number;
+}
+
+/**
+ * Options of `GlassnodeAPI.callMetric` when validating the response: the per-call options plus
+ * the Zod `schema` the response body must match. The result is typed as the schema's output
+ * (`z.output<S>`, so transforms apply), and a mismatch rejects with a `GlassnodeValidationError`.
+ * Use the exported `TimeSeriesResponseSchema` / `TimeSeriesObjectResponseSchema`, or any Zod
+ * schema of your own.
+ */
+export interface CallMetricOptions<S extends ZodType = ZodType> extends CallOptions {
+  /** Zod schema the response body must match. */
+  schema: S;
 }

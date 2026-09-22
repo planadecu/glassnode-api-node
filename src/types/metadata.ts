@@ -373,3 +373,68 @@ export const BulkResponseSchema = z.array(
  * Bulk response type
  */
 export type BulkResponse = z.infer<typeof BulkResponseSchema>;
+
+/**
+ * One point of a single-valued metric time series, as returned by most metric endpoints via
+ * `callMetric` (e.g. `/market/price_usd_close`): `{ t, v }`.
+ *
+ * - `t` — timestamp in unix **seconds** (a number, not a `Date`); convert with `new Date(t * 1000)`.
+ * - `v` — the value. `null` is accepted: the docs do not promise that `v` is never null, and a
+ *   response schema is lenient by design, so a gap in the data does not fail the whole series.
+ *
+ * Extra fields on a point are tolerated (stripped from the result), so an additive server change
+ * does not fail validation. Metrics whose `v` is an array or object, or that return `o` instead,
+ * need {@link TimeSeriesObjectPointSchema} or a schema of your own.
+ */
+export const TimeSeriesPointSchema = z.object({
+  t: z.number(),
+  v: z.number().nullable(),
+});
+
+/**
+ * One point of a single-valued metric time series (`{ t, v }`)
+ */
+export type TimeSeriesPoint = z.infer<typeof TimeSeriesPointSchema>;
+
+/**
+ * Response schema of a single-valued metric (array of `{ t, v }` points). Pass it to
+ * `callMetric(path, params, { schema: TimeSeriesResponseSchema })` for a validated result.
+ */
+export const TimeSeriesResponseSchema = z.array(TimeSeriesPointSchema);
+
+/**
+ * Response type of a single-valued metric (array of `{ t, v }` points)
+ */
+export type TimeSeriesResponse = z.infer<typeof TimeSeriesResponseSchema>;
+
+/**
+ * One point of an object-valued metric time series: `{ t, o }`, where `o` maps names to numbers —
+ * e.g. `{ o, h, l, c }` for `/market/price_usd_ohlc`, or one entry per exchange/cohort for
+ * breakdown metrics.
+ *
+ * - `t` — timestamp in unix **seconds** (see {@link TimeSeriesPointSchema}).
+ * - `o` — any keys (new keys never fail validation), each a number or `null`.
+ *
+ * Extra fields on a point are tolerated (stripped from the result). Metrics whose `o` values are
+ * nested objects or arrays need a schema of your own.
+ */
+export const TimeSeriesObjectPointSchema = z.object({
+  t: z.number(),
+  o: z.record(z.string(), z.number().nullable()),
+});
+
+/**
+ * One point of an object-valued metric time series (`{ t, o }`)
+ */
+export type TimeSeriesObjectPoint = z.infer<typeof TimeSeriesObjectPointSchema>;
+
+/**
+ * Response schema of an object-valued metric (array of `{ t, o }` points). Pass it to
+ * `callMetric(path, params, { schema: TimeSeriesObjectResponseSchema })` for a validated result.
+ */
+export const TimeSeriesObjectResponseSchema = z.array(TimeSeriesObjectPointSchema);
+
+/**
+ * Response type of an object-valued metric (array of `{ t, o }` points)
+ */
+export type TimeSeriesObjectResponse = z.infer<typeof TimeSeriesObjectResponseSchema>;

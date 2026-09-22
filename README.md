@@ -39,6 +39,7 @@ const btcPrice = await api.callMetric('/market/price_usd_close', { a: 'BTC' });
 - [Configuration](#configuration)
 - [Methods](#methods)
 - [Query parameters](#query-parameters)
+- [Validating `callMetric` results](#validating-callmetric-results)
 - [Timestamps](#timestamps)
 - [Error Handling](#error-handling)
 - [Retries](#retries)
@@ -143,7 +144,8 @@ request. That is why `'query'` stays the default.
 | `getMetricMetadata(path, params?, options?)` | `Promise<MetricMetadataResponse>` | Metadata for a specific metric                    |
 | `getMetricList(options?)`                    | `Promise<MetricListResponse>`     | List of all available metric paths                |
 | `getMetricStats(path, params?, options?)`    | `Promise<MetricStatsResponse>`    | Data-lag percentiles for a metric (trailing 30d)  |
-| `callMetric<T>(path, params?, options?)`     | `Promise<T>`                      | Call any metric endpoint directly                 |
+| `callMetric<T>(path, params?, options?)`     | `Promise<T>`                      | Call any metric endpoint directly (unvalidated)   |
+| `callMetric(path, params, { schema })`       | `Promise<z.output<schema>>`       | Call any metric endpoint, validated by `schema`   |
 | `callBulkMetric(path, params?, options?)`    | `Promise<BulkResponse>`           | Call a bulk endpoint (all assets in one response) |
 
 `options` is an optional `CallOptions` object, `{ signal?: AbortSignal; timeout?: number }`, to
@@ -172,7 +174,7 @@ Arguments are checked before any request is sent; invalid input rejects with a
   argument).
 - **Per-call options** must be an object; `signal` must be an `AbortSignal` and `timeout` a
   positive integer number of ms up to `2147483647` (`argument` is `options`, `options.signal` or
-  `options.timeout`).
+  `options.timeout`). `callMetric`'s `schema` must be a Zod schema (`argument` `options.schema`).
 
 ## Query parameters
 
@@ -214,6 +216,37 @@ const recent = await api.callMetric('/market/price_usd_close', {
 });
 ```
 
+## Validating `callMetric` results
+
+Without a schema, `callMetric<T>()` returns the parsed JSON body **unvalidated** and simply cast to
+`T`. Pass a Zod schema as `options.schema` to validate the body and get a result typed from the
+schema; a mismatch rejects with a `GlassnodeValidationError` (with `endpoint`), like every other
+method. Schemas for the two common shapes are exported:
+
+| Schema                           | Type                       | Shape                                                            |
+| -------------------------------- | -------------------------- | ---------------------------------------------------------------- |
+| `TimeSeriesResponseSchema`       | `TimeSeriesResponse`       | `{ t: number; v: number \| null }[]` — most metrics              |
+| `TimeSeriesObjectResponseSchema` | `TimeSeriesObjectResponse` | `{ t: number; o: Record<string, number \| null> }[]` — e.g. OHLC |
+
+They are lenient towards additive changes: extra fields on a point are ignored (stripped), `o`
+accepts any keys, and a `null` value is accepted rather than failing the whole series.
+
+```typescript
+import { TimeSeriesResponseSchema, TimeSeriesObjectResponseSchema } from 'glassnode-api';
+
+const btc = { a: 'BTC' };
+
+const closes = await api.callMetric('/market/price_usd_close', btc, {
+  schema: TimeSeriesResponseSchema,
+}); // TimeSeriesResponse
+const candles = await api.callMetric('/market/price_usd_ohlc', btc, {
+  schema: TimeSeriesObjectResponseSchema,
+}); // candles[0].o.c is number | null
+```
+
+Metrics with other shapes (e.g. an array `v`) can use any Zod schema of your own — its output type
+(transforms included) becomes the result type. `schema` sits alongside `signal` and `timeout`.
+
 ## Timestamps
 
 The API sends every time value as unix **seconds**, and the client passes them through as plain
@@ -225,6 +258,7 @@ The API sends every time value as unix **seconds**, and the client passes them t
 | `MetricMetadata.timerange.min` / `.max`                | `number` (unix secs) |
 | `BulkResponse[number].t`                               | `number` (unix secs) |
 | `t` in `callMetric()` results (raw JSON, typed by you) | `number` (unix secs) |
+| `TimeSeriesPoint.t` / `TimeSeriesObjectPoint.t`        | `number` (unix secs) |
 
 `modified` is `undefined` when the API omits it **or sends `0`** (treated as "not recorded", not as
 1970-01-01). Convert any unix-second value with `new Date(t * 1000)`:
@@ -248,7 +282,7 @@ matching needed.
 | `GlassnodeApiError`        | The API answered with a non-2xx HTTP status (e.g. `401`, `404`, `429`, `5xx`; with x402, only before a payment was sent, or `402` after it)                                                                                         | `status`, `statusText`, `detail` (server message), `isRetryable` (429 / 5xx)                                                                                                   |
 | `GlassnodeNetworkError`    | No HTTP response: connection/DNS failure, or the per-request `timeout` firing. Retried when `maxRetries` > 0                                                                                                                        | `timedOut` (`true` when `timeout` fired), `cause` (the original fetch error)                                                                                                   |
 | `GlassnodeAbortError`      | The call was cancelled through the per-call `signal` (already aborted, or aborted mid-request or during a retry wait). Never retried                                                                                                | `cause` (the signal's `reason`, e.g. a `DOMException` named `AbortError`, or `TimeoutError` for `AbortSignal.timeout()`)                                                       |
-| `GlassnodeValidationError` | A `2xx` response was unusable: the body was not valid JSON, or did not match the expected schema. Never retried                                                                                                                     | `endpoint` (API path, e.g. `/v1/metadata/assets`), `cause` (`ZodError` / `SyntaxError`)                                                                                        |
+| `GlassnodeValidationError` | A `2xx` response was unusable: the body was not valid JSON, or did not match the expected schema (or `callMetric`'s `schema`). Never retried                                                                                        | `endpoint` (API path, e.g. `/v1/metadata/assets`), `cause` (`ZodError` / `SyntaxError`)                                                                                        |
 | `GlassnodeConfigError`     | The options passed to `new GlassnodeAPI(...)` are invalid (e.g. empty `apiKey`, `x402` without `fetch`), or `createX402Fetch` cannot load its optional peer dependencies                                                            | `message` (lists the invalid fields), `cause` (`ZodError` / import error)                                                                                                      |
 | `GlassnodeInputError`      | A method argument is invalid (malformed metric path, a param value that cannot be sent, `f` other than `json`, `api_key`/`path` in `params`, a bad `maxPaymentPerCall`). Raised before any request; never retried                   | `argument` (`metricPath`, `params.<name>`, `options.signal`, `options.timeout`, `maxPaymentPerCall`)                                                                           |
 | `GlassnodePaymentError`    | x402 only: the payment could not be made (price above `maxPaymentPerCall`, signer failed, unusable `402`), or the paid request failed in transit or got a non-2xx status other than `402` after the payment was sent. Never retried | `paymentMayHaveSettled` (`true`: a payment was sent and may have been charged; do not blindly retry), `status` (HTTP status of the paid response, if any), `timedOut`, `cause` |

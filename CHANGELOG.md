@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.22.0
+
+- Added: opt-in response validation for `callMetric`. Pass a Zod schema as `options.schema` —
+  `callMetric(path, params, { schema })` — and the body is validated and typed as the schema's
+  output (`z.output<S>`, so transforms apply). A mismatch rejects with a
+  `GlassnodeValidationError` whose `endpoint` is the metric's API path, like every other method.
+  A `schema` that is not a Zod schema rejects with a `GlassnodeInputError` (`argument`
+  `options.schema`) before any request. `schema` combines with `signal` and `timeout`.
+- Added: exported schemas and types for the two common metric shapes —
+  `TimeSeriesPointSchema` / `TimeSeriesResponseSchema` (`{ t: number; v: number | null }[]`) and
+  `TimeSeriesObjectPointSchema` / `TimeSeriesObjectResponseSchema`
+  (`{ t: number; o: Record<string, number | null> }[]`, e.g. `/market/price_usd_ohlc`) — plus the
+  `CallMetricOptions<S>` type. They are lenient to additive server changes: extra fields on a point
+  are stripped, `o` accepts any keys, and a `null` value does not fail the series.
+- Not observable for existing callers: without `schema`, `callMetric<T>` still returns the parsed
+  body unvalidated, cast to `T`, with the same typing and runtime behavior. `schema` is a
+  `callMetric`-only option; other methods' `options` type does not accept it.
+
 ## 0.21.3
 
 - Fixed: the config options `timeout`, `retryDelay` and `maxRetryDelay` are now capped at

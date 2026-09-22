@@ -6,7 +6,7 @@ import {
   DEFAULT_API_URL,
   X402_API_URL,
 } from './types/config.js';
-import type { ZodType, ZodError } from 'zod';
+import type { z, ZodType, ZodError } from 'zod';
 import {
   GlassnodeError,
   GlassnodeAbortError,
@@ -31,7 +31,7 @@ import {
   BulkResponseSchema,
 } from './types/metadata.js';
 import type { MetricParams } from './types/params.js';
-import type { CallOptions } from './types/call-options.js';
+import type { CallOptions, CallMetricOptions } from './types/call-options.js';
 
 /** `name`s of the abort rejections fetch produces: `AbortSignal.timeout()` and a plain abort. */
 const ABORT_NAMES = new Set(['TimeoutError', 'AbortError']);
@@ -304,6 +304,29 @@ function normalizeCallOptions(options: unknown): ResolvedCallOptions {
     );
   }
   return { signal, timeout };
+}
+
+/**
+ * The `schema` of callMetric's options (already checked to be an object or nullish by
+ * normalizeCallOptions), or undefined when none is set. Anything that is not a Zod schema
+ * (duck-typed on `safeParse`, so a schema from another copy of zod works too) rejects with a
+ * GlassnodeInputError before any request is made.
+ */
+function metricSchema(options: unknown): ZodType | undefined {
+  if (options === undefined || options === null) return undefined;
+  const { schema } = options as { schema?: unknown };
+  if (schema === undefined) return undefined;
+  if (
+    typeof schema !== 'object' ||
+    schema === null ||
+    typeof (schema as { safeParse?: unknown }).safeParse !== 'function'
+  ) {
+    throw new GlassnodeInputError(
+      `Invalid options: \`schema\` must be a Zod schema (e.g. TimeSeriesResponseSchema), got ${formatForMessage(schema)}`,
+      { argument: 'options.schema' }
+    );
+  }
+  return schema as ZodType;
 }
 
 /**
@@ -651,32 +674,60 @@ export class GlassnodeAPI {
   }
 
   /**
-   * Call a generic metric
+   * Call a generic metric, validating the response against a Zod schema.
+   *
+   * @example
+   * const series = await api.callMetric('/market/price_usd_close', { a: 'BTC' }, {
+   *   schema: TimeSeriesResponseSchema,
+   * }); // TimeSeriesResponse — { t: number; v: number | null }[]
+   *
+   * @param metricPath Path of the metric (e.g. /market/price_usd_close)
+   * @param params Query parameters for the metric (see {@link MetricParams}); pass `undefined` or
+   *   `{}` for none
+   * @param options Per-call options plus `schema`: the Zod schema the response body must match
+   *   (see {@link CallMetricOptions}), e.g. `TimeSeriesResponseSchema` for `{ t, v }` metrics or
+   *   `TimeSeriesObjectResponseSchema` for `{ t, o }` metrics
+   * @returns Promise resolving to the validated response, typed as the schema's output
+   * @throws GlassnodeValidationError (with `endpoint`) if the response does not match `schema`
+   * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
+   *   malformed, `params.f` is anything but `json`, `params` contains `api_key`, a param value
+   *   cannot be converted (see `MetricParamValue`), `options` is invalid, or `options.schema` is
+   *   not a Zod schema
+   * @throws GlassnodeAbortError if `options.signal` aborts (or was already aborted)
+   */
+  async callMetric<S extends ZodType>(
+    metricPath: string,
+    params: MetricParams | undefined,
+    options: CallMetricOptions<S>
+  ): Promise<z.output<S>>;
+  /**
+   * Call a generic metric. The response body is returned **unvalidated** and cast to `T` — pass
+   * `{ schema }` in `options` (see the other overload) for a validated, typed result.
    * @param metricPath Path of the metric (e.g. /accumulation_balance)
    * @param params Query parameters for the metric, e.g. `{ a: 'BTC', s: 1609459200, i: '24h' }`
    *   or `{ a: 'BTC', s: new Date('2021-01-01') }` (see {@link MetricParams})
    * @param options Per-call options: `signal` to cancel, `timeout` to override the config one
    *   (see {@link CallOptions})
-   * @returns Promise resolving to the response data
+   * @returns Promise resolving to the response data (not validated)
    * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
    *   malformed, `params.f` is anything but `json`, `params` contains `api_key`, a param value
    *   cannot be converted (see `MetricParamValue`), or `options` is invalid
    * @throws GlassnodeAbortError if `options.signal` aborts (or was already aborted)
    */
-  async callMetric<T>(
+  async callMetric<T>(metricPath: string, params?: MetricParams, options?: CallOptions): Promise<T>;
+  async callMetric(
     metricPath: string,
     params: MetricParams = {},
-    options?: CallOptions
-  ): Promise<T> {
+    options?: CallOptions | CallMetricOptions
+  ): Promise<unknown> {
     assertMetricPath(metricPath);
     const query = normalizeParams(params, { format: true });
     const callOptions = normalizeCallOptions(options);
-    const response = await this.request(
-      '/v1/metrics' + metricPath,
-      { ...query, f: 'json' },
-      callOptions
-    );
-    return response as T;
+    const schema = metricSchema(options);
+    const endpoint = '/v1/metrics' + metricPath;
+    const response = await this.request(endpoint, { ...query, f: 'json' }, callOptions);
+    if (schema === undefined) return response;
+    return validateResponse(schema, response, endpoint, (t) => this.redact(t));
   }
 
   /**
