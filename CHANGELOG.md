@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.12.1
+
+- **CI now actually type-checks the test files.** `tsconfig.test.json` inherited
+  `"exclude": ["node_modules", "dist", "test"]` from `tsconfig.json`, and an inherited `exclude`
+  still filters the child's `include`, so `tsc -p tsconfig.test.json --noEmit` (the "type-check
+  test files" step in `ci.yml` / `publish.yml`) only checked `src/` and never saw `test/`. It now
+  overrides `exclude` to `["node_modules", "dist"]`; the CJS build (`tsconfig.json`) still
+  excludes tests. The check does not read `dist/`, so it keeps running before `pnpm run build`.
+- Fixed the latent error this exposed: `test/x402.missing-deps.spec.ts` dynamically imported
+  `'../src/x402'` without the `.js` extension required under `NodeNext` (TS2835).
+- Tooling/tests only; no change to the published library.
+
 ## 0.12.0
 
 - **Response schemas tolerate additive server changes** (rule of thumb: strict enums for inputs,

@@ -7,7 +7,7 @@ vi.mock('@x402/evm', () => {
 
 describe('createX402Fetch without optional deps', () => {
   it('throws a clear install error', async () => {
-    const { createX402Fetch } = await import('../src/x402');
+    const { createX402Fetch } = await import('../src/x402.js');
     const account = {
       address: '0x0000000000000000000000000000000000000001' as const,
       signTypedData: async () => '0x' as const,
