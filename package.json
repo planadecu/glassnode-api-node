@@ -1,6 +1,6 @@
 {
   "name": "glassnode-api",
-  "version": "0.14.1",
+  "version": "0.14.2",
   "type": "commonjs",
   "description": "Typescript client for the Glassnode API (Node.js and Browser)",
   "main": "dist/index.js",

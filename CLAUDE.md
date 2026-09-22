@@ -84,7 +84,9 @@ Follow [semver](https://semver.org/):
 - **Browser**: Rollup produces UMD (+ a minified ESM) bundle in `dist/` for the `browser`/`module`
   fields; source maps are generated `hidden` and not published.
 - Config: `tsconfig.json` (CJS), `tsconfig.esm.json` (ESM), `tsconfig.browser.json` (browser),
-  `tsconfig.test.json` (tests/IDE). The package sets `"type": "commonjs"`.
+  `tsconfig.test.json` (tests/IDE), `tsconfig.examples.json` (type-checks `examples/` against
+  `src/` using root deps; CI runs `pnpm exec tsc -p tsconfig.examples.json`). The package sets
+  `"type": "commonjs"`.
 
 ## Publishing
 

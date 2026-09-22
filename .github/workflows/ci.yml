@@ -32,6 +32,10 @@ jobs:
       - run: pnpm run test:coverage
       # Type-check the test files (Vitest transpiles without type checking).
       - run: pnpm exec tsc -p tsconfig.test.json --noEmit
+      # Type-check the examples/ scripts against src/ so they can't drift from the public API
+      # (they are only run ad hoc via ts-node). Resolves deps from the root install — no extra
+      # install of the examples/ sub-project.
+      - run: pnpm exec tsc -p tsconfig.examples.json
       - run: pnpm run build
       - run: pnpm run build:browser
       # Deep type-resolution guard that attw can't provide (it runs with skipLibCheck on): a

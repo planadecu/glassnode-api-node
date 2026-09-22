@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    // Examples resolve their imports against the ROOT node_modules (viem, @x402/*, zod are root
+    // devDependencies), so CI needs no second install of examples/. The only examples-only dep is
+    // dotenv, used purely as a side-effect `import 'dotenv/config'` — nothing to type-check, so
+    // don't require it to resolve.
+    "noUncheckedSideEffectImports": false
+  },
+  "include": ["src/**/*", "examples/**/*"],
+  "exclude": ["node_modules", "dist", "examples/node_modules"]
+}

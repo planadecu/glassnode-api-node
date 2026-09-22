@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.2
+
+- CI now type-checks the `examples/` scripts against `src/` (`tsconfig.examples.json`, run via
+  `pnpm exec tsc -p tsconfig.examples.json`), so an example can no longer silently drift from the
+  public API. Examples resolve their dependencies from the root install; no extra install step.
+  Tooling only; no package change.
+
 ## 0.14.1
 
 - **Deprecated:** `MetricTierSchema` / `MetricTier` and `MetricDataTypeSchema` / `MetricDataType`
