@@ -700,6 +700,33 @@ pnpm exec tsc -p tsconfig.examples.json       # type-check the examples
 Developing needs Node.js 24 (see `.nvmrc`; Vitest needs Node >= 22.12). The published package
 itself supports Node.js >= 18.
 
+### Recording contract fixtures
+
+`scripts/record-fixtures.mjs` records real API responses into `test/fixtures/contract/` so the
+response schemas can be tested against what the API actually returns. It is only re-run to
+refresh those fixtures, not as part of the normal workflow:
+
+```bash
+GLASSNODE_API_KEY=... node scripts/record-fixtures.mjs
+```
+
+- The key is read **only** from the `GLASSNODE_API_KEY` environment variable (there is no CLI flag
+  for it) and sent only as the `X-Api-Key` header. Prefer loading it from a secret store rather
+  than typing it inline, so it does not stay in your shell history — e.g. with 1Password:
+  `GLASSNODE_API_KEY="$(op read 'op://<vault>/<item>/credential')" node scripts/record-fixtures.mjs`.
+- It makes 10 calls, 1 s apart: asset metadata, the metric list, metric metadata and metric stats
+  (with and without `a`) — which do not consume API quota — plus three short, fixed-window metric
+  data calls (a `{t, v}` series, a `{t, o}` series and a bulk response), which do.
+- It writes one pretty-printed `<name>.json` per response plus `manifest.json` (endpoint, params,
+  HTTP status, capture date and client version for each fixture). A response over 2 MB is trimmed
+  to a representative subset, and the manifest says so.
+- Any HTTP or network error aborts with the status and endpoint, and the run also aborts if the key
+  appears anywhere in the output; in both cases nothing is written.
+- `--base-url <url>` (or `GLASSNODE_API_URL`) points it at another server, e.g. a local mock;
+  `--out-dir <dir>` writes somewhere other than `test/fixtures/contract/`.
+
+Review the diff (`git diff test/fixtures/contract`) before committing the fixtures.
+
 ## License
 
 [MIT](./LICENSE)

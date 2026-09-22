@@ -5,3 +5,7 @@
 # npm in examples/); reformatting them only churns diffs against what the tool writes.
 pnpm-lock.yaml
 package-lock.json
+
+# Recorded API responses (scripts/record-fixtures.mjs) are kept byte-for-byte as the script
+# writes them, so a re-capture diffs only what the API changed.
+test/fixtures/contract/

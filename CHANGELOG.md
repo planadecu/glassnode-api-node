@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.26.1
+
+- Tooling: new `scripts/record-fixtures.mjs` records real Glassnode API responses (asset metadata,
+  metric list, metric metadata and stats with and without `a`, a `{t, v}` series, a `{t, o}` series
+  and a bulk response) into `test/fixtures/contract/` with a `manifest.json`, for upcoming contract
+  tests of the response schemas. The key is read only from `GLASSNODE_API_KEY` and sent only as the
+  `X-Api-Key` header; the run aborts without writing anything on any HTTP error or if the key
+  appears in the output. Responses over 2 MB are trimmed to a representative subset. Documented in
+  the README "Development" section; the recorded fixtures are excluded from Prettier. Not
+  published; no change to the package.
+
 ## 0.26.0
 
 - Types: the `fetch` config option is now typed as the new exported `GlassnodeFetch`
