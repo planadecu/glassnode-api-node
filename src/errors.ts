@@ -44,8 +44,10 @@ export class GlassnodeApiError extends GlassnodeError {
 }
 
 /**
- * The request never produced an HTTP response: DNS/connection failure, reset, abort, or the
- * per-request `timeout` firing. The original error is on `.cause`. Retried when `maxRetries` > 0.
+ * The request never produced an HTTP response: DNS/connection failure, reset, or the per-request
+ * `timeout` firing (also an abort that did not come from the caller's per-call `signal`). The
+ * original error is on `.cause`. Retried when `maxRetries` > 0. A cancellation through the
+ * per-call `signal` is a {@link GlassnodeAbortError} instead.
  */
 export class GlassnodeNetworkError extends GlassnodeError {
   /** True when the failure was the per-request `timeout` (an `AbortSignal.timeout()` abort). */
@@ -55,6 +57,23 @@ export class GlassnodeNetworkError extends GlassnodeError {
     super(message, { cause: options.cause });
     this.name = 'GlassnodeNetworkError';
     this.timedOut = options.timedOut;
+  }
+}
+
+/**
+ * The call was cancelled through the `signal` passed in its per-call options (see `CallOptions`):
+ * the signal was already aborted when the method was called, or it aborted during a request or a
+ * retry wait. The signal's `reason` is on `.cause` (by default a `DOMException` named
+ * `AbortError`; a `TimeoutError` when the signal was `AbortSignal.timeout()`). Never retried.
+ *
+ * A separate class from {@link GlassnodeNetworkError} on purpose: a cancellation is the caller's
+ * own decision, not a failure, so code that retries network errors must not retry it, and a
+ * per-attempt `timeout` (`GlassnodeNetworkError` with `timedOut: true`) stays distinguishable.
+ */
+export class GlassnodeAbortError extends GlassnodeError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'GlassnodeAbortError';
   }
 }
 
@@ -93,7 +112,8 @@ export class GlassnodeConfigError extends GlassnodeError {
  */
 export class GlassnodeInputError extends GlassnodeError {
   /**
-   * Which argument was rejected: `metricPath`, or `params.<name>` for a query parameter. From the
+   * Which argument was rejected: `metricPath`, `params.<name>` for a query parameter, or
+   * `options` / `options.signal` / `options.timeout` for the per-call options. From the
    * x402 helpers: `maxPaymentPerCall` (`createX402Fetch`) or `value` (`usdcDecimalToAtomic`).
    */
   readonly argument: string;

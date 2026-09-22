@@ -24,6 +24,7 @@ const btcPrice = await api.callMetric('/market/price_usd_close', { a: 'BTC' });
 - ✅ **Runtime-validated** — responses parsed and validated with Zod, so bad data fails fast
 - 🌐 **Universal** — works in Node.js and the browser (UMD + ESM bundles, tree-shakeable)
 - 🔁 **Built-in retries** — automatic retry with exponential backoff for `429` and `5xx`
+- ⏹️ **Cancellable** — per-call `AbortSignal` and `timeout` on every method
 - 📦 **Bulk endpoints** — fetch every asset in a single call with `callBulkMetric()`
 - 🎯 **Typed errors** — every failure is a `GlassnodeError`; subclasses for HTTP, network/timeout, validation and config errors
 - 🪶 **Lightweight** — a single runtime dependency (`zod`)
@@ -39,6 +40,7 @@ const btcPrice = await api.callMetric('/market/price_usd_close', { a: 'BTC' });
 - [Timestamps](#timestamps)
 - [Error Handling](#error-handling)
 - [Retries](#retries)
+- [Cancellation and per-call timeouts](#cancellation-and-per-call-timeouts)
 - [Bulk Metrics](#bulk-metrics)
 - [Paid calls with x402](#paid-calls-with-x402)
 - [Browser](#browser)
@@ -124,7 +126,7 @@ const api = new GlassnodeAPI({ apiKey: process.env.GLASSNODE_API_KEY, apiKeyLoca
 ```
 
 With `'header'`, a custom `fetch` is called as `fetch(url, { headers: { 'X-Api-Key': key } })`
-(plus `signal` when `timeout` is set) and must forward `init.headers` — the fetch returned by
+(plus `signal` when a `timeout` or a per-call `signal` is set) and must forward `init.headers` — the fetch returned by
 `createX402Fetch()` does. No header is sent when there is no `apiKey` (e.g. `x402` mode).
 
 `'header'` does **not** work in browsers: a custom header triggers a CORS preflight, and the
@@ -133,14 +135,19 @@ request. That is why `'query'` stays the default.
 
 ## Methods
 
-| Method                             | Returns                           | Description                                       |
-| ---------------------------------- | --------------------------------- | ------------------------------------------------- |
-| `getAssetMetadata()`               | `Promise<AssetMetadataResponse>`  | Metadata for all supported assets                 |
-| `getMetricMetadata(path, params?)` | `Promise<MetricMetadataResponse>` | Metadata for a specific metric                    |
-| `getMetricList()`                  | `Promise<MetricListResponse>`     | List of all available metric paths                |
-| `getMetricStats(path, params?)`    | `Promise<MetricStatsResponse>`    | Data-lag percentiles for a metric (trailing 30d)  |
-| `callMetric<T>(path, params?)`     | `Promise<T>`                      | Call any metric endpoint directly                 |
-| `callBulkMetric(path, params?)`    | `Promise<BulkResponse>`           | Call a bulk endpoint (all assets in one response) |
+| Method                                       | Returns                           | Description                                       |
+| -------------------------------------------- | --------------------------------- | ------------------------------------------------- |
+| `getAssetMetadata(options?)`                 | `Promise<AssetMetadataResponse>`  | Metadata for all supported assets                 |
+| `getMetricMetadata(path, params?, options?)` | `Promise<MetricMetadataResponse>` | Metadata for a specific metric                    |
+| `getMetricList(options?)`                    | `Promise<MetricListResponse>`     | List of all available metric paths                |
+| `getMetricStats(path, params?, options?)`    | `Promise<MetricStatsResponse>`    | Data-lag percentiles for a metric (trailing 30d)  |
+| `callMetric<T>(path, params?, options?)`     | `Promise<T>`                      | Call any metric endpoint directly                 |
+| `callBulkMetric(path, params?, options?)`    | `Promise<BulkResponse>`           | Call a bulk endpoint (all assets in one response) |
+
+`options` is an optional `CallOptions` object, `{ signal?: AbortSignal; timeout?: number }`, to
+cancel the call or give it its own per-attempt timeout — see
+[Cancellation and per-call timeouts](#cancellation-and-per-call-timeouts). To pass `options`
+without query parameters, use `undefined` (or `{}`) for `params`.
 
 All response types are exported and fully typed.
 
@@ -161,6 +168,9 @@ Arguments are checked before any request is sent; invalid input rejects with a
   `callMetric`, `callBulkMetric`, `getMetricMetadata` and `getMetricStats` (the client only parses
   JSON), and `path` is rejected in `getMetricMetadata`/`getMetricStats` (it comes from the `path`
   argument).
+- **Per-call options** must be an object; `signal` must be an `AbortSignal` and `timeout` a
+  positive integer number of ms up to `2147483647` (`argument` is `options`, `options.signal` or
+  `options.timeout`).
 
 ## Query parameters
 
@@ -234,10 +244,11 @@ matching needed.
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `GlassnodeError`           | Base class of all the errors below — catch this to handle any library failure                                                                                                                                                       | `message`, `cause`                                                                                                                                                             |
 | `GlassnodeApiError`        | The API answered with a non-2xx HTTP status (e.g. `401`, `404`, `429`, `5xx`; with x402, only before a payment was sent, or `402` after it)                                                                                         | `status`, `statusText`, `detail` (server message), `isRetryable` (429 / 5xx)                                                                                                   |
-| `GlassnodeNetworkError`    | No HTTP response: connection/DNS failure, abort, or the per-request `timeout` firing. Retried when `maxRetries` > 0                                                                                                                 | `timedOut` (`true` when `timeout` fired), `cause` (the original fetch error)                                                                                                   |
+| `GlassnodeNetworkError`    | No HTTP response: connection/DNS failure, or the per-request `timeout` firing. Retried when `maxRetries` > 0                                                                                                                        | `timedOut` (`true` when `timeout` fired), `cause` (the original fetch error)                                                                                                   |
+| `GlassnodeAbortError`      | The call was cancelled through the per-call `signal` (already aborted, or aborted mid-request or during a retry wait). Never retried                                                                                                | `cause` (the signal's `reason`, e.g. a `DOMException` named `AbortError`, or `TimeoutError` for `AbortSignal.timeout()`)                                                       |
 | `GlassnodeValidationError` | A `2xx` response was unusable: the body was not valid JSON, or did not match the expected schema. Never retried                                                                                                                     | `endpoint` (API path, e.g. `/v1/metadata/assets`), `cause` (`ZodError` / `SyntaxError`)                                                                                        |
 | `GlassnodeConfigError`     | The options passed to `new GlassnodeAPI(...)` are invalid (e.g. empty `apiKey`, `x402` without `fetch`), or `createX402Fetch` cannot load its optional peer dependencies                                                            | `message` (lists the invalid fields), `cause` (`ZodError` / import error)                                                                                                      |
-| `GlassnodeInputError`      | A method argument is invalid (malformed metric path, a param value that cannot be sent, `f` other than `json`, `api_key`/`path` in `params`, a bad `maxPaymentPerCall`). Raised before any request; never retried                   | `argument` (`metricPath`, `params.<name>`, `maxPaymentPerCall`)                                                                                                                |
+| `GlassnodeInputError`      | A method argument is invalid (malformed metric path, a param value that cannot be sent, `f` other than `json`, `api_key`/`path` in `params`, a bad `maxPaymentPerCall`). Raised before any request; never retried                   | `argument` (`metricPath`, `params.<name>`, `options.signal`, `options.timeout`, `maxPaymentPerCall`)                                                                           |
 | `GlassnodePaymentError`    | x402 only: the payment could not be made (price above `maxPaymentPerCall`, signer failed, unusable `402`), or the paid request failed in transit or got a non-2xx status other than `402` after the payment was sent. Never retried | `paymentMayHaveSettled` (`true`: a payment was sent and may have been charged; do not blindly retry), `status` (HTTP status of the paid response, if any), `timedOut`, `cause` |
 
 ```typescript
@@ -246,6 +257,7 @@ import {
   GlassnodeError,
   GlassnodeApiError,
   GlassnodeNetworkError,
+  GlassnodeAbortError,
   GlassnodeValidationError,
   GlassnodeInputError,
   GlassnodePaymentError,
@@ -261,6 +273,8 @@ try {
     console.error(err.message); // "API request failed (401): Invalid or missing API key"
   } else if (err instanceof GlassnodeNetworkError) {
     console.error(err.timedOut ? 'request timed out' : 'network failure', err.cause);
+  } else if (err instanceof GlassnodeAbortError) {
+    // cancelled by your own signal (reason on err.cause) — usually nothing to report
   } else if (err instanceof GlassnodeValidationError) {
     console.error(`unexpected response from ${err.endpoint}`, err.cause);
   } else if (err instanceof GlassnodeInputError) {
@@ -302,6 +316,54 @@ With [x402](#paid-calls-with-x402), a connection failure, timeout, `429` or `5xx
 while no payment has been sent. Once a signed payment has gone out, a failure — whatever the HTTP
 status — is **never** retried; see
 [Errors](#x402-errors) below.
+
+## Cancellation and per-call timeouts
+
+Every method takes an optional last argument, `options: { signal?: AbortSignal; timeout?: number }`
+(the exported `CallOptions` type):
+
+```typescript
+const controller = new AbortController();
+const pending = api.callMetric(
+  '/market/price_usd_close',
+  { a: 'BTC' },
+  { signal: controller.signal }
+);
+controller.abort(); // e.g. the user navigated away
+
+try {
+  await pending;
+} catch (err) {
+  if (err instanceof GlassnodeAbortError) {
+    // cancelled; err.cause is the signal's reason
+  }
+}
+
+// A slow endpoint gets more time than the config `timeout`, per attempt:
+await api.getMetricList({ timeout: 60_000 });
+
+// A deadline for the whole call, retries and waits included:
+await api.callMetric('/market/mvrv', { a: 'BTC' }, { signal: AbortSignal.timeout(10_000) });
+```
+
+- **`signal`** cancels the call: the in-flight request, any retry wait (the client does not sleep
+  through a backoff after an abort) and every further retry. The call rejects with a
+  **`GlassnodeAbortError`**, never retried, with the signal's `reason` on `.cause`. A signal that is
+  already aborted rejects before any request is sent (after argument validation). A cancellation is
+  not a `GlassnodeNetworkError`, so it is never confused with a timeout or a connection failure.
+- **`timeout`** overrides the config `timeout` for this call, with the same meaning: each attempt is
+  aborted after that many ms, and the failure is a retryable `GlassnodeNetworkError` with
+  `timedOut: true`. For a limit on the whole call, pass `signal: AbortSignal.timeout(ms)` instead
+  (or as well).
+- Both together: each attempt aborts on whichever comes first. The client combines the two signals
+  itself (`AbortSignal.any()` needs Node 20.3+) and removes its listeners from your signal after
+  every attempt, so one long-lived signal can be reused across many calls.
+- A custom `fetch` receives the signal as `init.signal` and must honor it for an in-flight request
+  to be cancelled. With no `options` (or `{}`), a custom `fetch` is called exactly as before.
+- **x402:** the signal reaches the x402 fetch. Aborting before a payment was sent rejects with
+  `GlassnodeAbortError` (nothing paid). Aborting after the paid request went out rejects with the
+  `GlassnodePaymentError` (`paymentMayHaveSettled: true`) instead, since the payment may have settled;
+  it is never retried either. See [Errors](#x402-errors).
 
 ## Bulk Metrics
 
@@ -369,9 +431,10 @@ const mvrv = await api.callMetric('/market/mvrv', { a: 'BTC', i: '24h' });
   payment requirements → `GlassnodePaymentError` with `paymentMayHaveSettled: false` (x402's error on
   `.cause`). **Never retried**, even with `maxRetries` > 0: nothing was paid, and the same request
   would fail again.
-- The **paid** request fails in transit (connection error, `timeout`) → `GlassnodePaymentError` with
-  `paymentMayHaveSettled: true`. The transport error is on `.cause`, and `timedOut` is `true` when the
-  `timeout` fired. **Never retried**, see above.
+- The **paid** request fails in transit (connection error, `timeout`, or your per-call `signal`
+  aborting it) → `GlassnodePaymentError` with `paymentMayHaveSettled: true`. The transport error (or
+  the abort reason) is on `.cause`, and `timedOut` is `true` when the `timeout` fired. **Never
+  retried**, see above.
 - The **paid** request gets any non-2xx status other than `402` — `5xx`, `429`, or another `4xx`
   such as `400` → `GlassnodePaymentError` with `paymentMayHaveSettled: true` and `status` set; the
   equivalent `GlassnodeApiError` (`status`, `statusText`, server `detail`) is on `.cause`. **Never

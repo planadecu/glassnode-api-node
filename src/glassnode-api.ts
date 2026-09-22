@@ -9,6 +9,7 @@ import {
 import type { ZodType, ZodError } from 'zod';
 import {
   GlassnodeError,
+  GlassnodeAbortError,
   GlassnodeApiError,
   GlassnodeConfigError,
   GlassnodeInputError,
@@ -30,6 +31,7 @@ import {
   BulkResponseSchema,
 } from './types/metadata.js';
 import type { MetricParams } from './types/params.js';
+import type { CallOptions } from './types/call-options.js';
 
 /** `name`s of the abort rejections fetch produces: `AbortSignal.timeout()` and a plain abort. */
 const ABORT_NAMES = new Set(['TimeoutError', 'AbortError']);
@@ -237,6 +239,119 @@ function formatForMessage(value: unknown): string {
   return Array.isArray(value) ? 'an array' : 'an object';
 }
 
+/** Largest per-call `timeout` (ms): the maximum timer delay every runtime supports (2^31 - 1). */
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+/** Per-call options after validation. */
+interface ResolvedCallOptions {
+  signal?: AbortSignal;
+  timeout?: number;
+}
+
+/**
+ * Whether `value` looks like an AbortSignal. Duck-typed rather than `instanceof AbortSignal`, so a
+ * signal from another realm or a spec-compliant polyfill is accepted too.
+ */
+function isAbortSignal(value: unknown): value is AbortSignal {
+  if (typeof value !== 'object' || value === null) return false;
+  const s = value as Partial<AbortSignal>;
+  return (
+    typeof s.aborted === 'boolean' &&
+    typeof s.addEventListener === 'function' &&
+    typeof s.removeEventListener === 'function'
+  );
+}
+
+/**
+ * Validate the per-call options argument (see {@link CallOptions}). `undefined`/`null` and
+ * `undefined` fields mean "not set". Invalid values reject with a GlassnodeInputError before any
+ * request is made.
+ */
+function normalizeCallOptions(options: unknown): ResolvedCallOptions {
+  if (options === undefined || options === null) return {};
+  if (typeof options !== 'object' || Array.isArray(options)) {
+    throw new GlassnodeInputError(
+      `Invalid options: must be an object such as { signal, timeout }, got ${Array.isArray(options) ? 'array' : typeof options}`,
+      { argument: 'options' }
+    );
+  }
+  const { signal, timeout } = options as { signal?: unknown; timeout?: unknown };
+  if (signal !== undefined && !isAbortSignal(signal)) {
+    throw new GlassnodeInputError(
+      `Invalid options: \`signal\` must be an AbortSignal, got ${formatForMessage(signal)}`,
+      { argument: 'options.signal' }
+    );
+  }
+  if (
+    timeout !== undefined &&
+    (typeof timeout !== 'number' ||
+      !Number.isInteger(timeout) ||
+      timeout <= 0 ||
+      timeout > MAX_TIMEOUT_MS)
+  ) {
+    throw new GlassnodeInputError(
+      `Invalid options: \`timeout\` must be a positive integer number of milliseconds (at most ${MAX_TIMEOUT_MS}), got ${formatForMessage(timeout)}`,
+      { argument: 'options.timeout' }
+    );
+  }
+  return { signal, timeout };
+}
+
+/**
+ * An AbortSignal that aborts (with the same `reason`) as soon as either input signal aborts, and a
+ * `dispose` that removes the listeners it added. A small stand-in for `AbortSignal.any()`, which
+ * only exists from Node 20.3 (this package supports Node >= 18). Calling `dispose` once the
+ * attempt is over keeps a long-lived caller signal from accumulating listeners across calls.
+ */
+function combineSignals(
+  a: AbortSignal,
+  b: AbortSignal
+): { signal: AbortSignal; dispose: () => void } {
+  const controller = new AbortController();
+  const listeners: [AbortSignal, () => void][] = [];
+  const dispose = () => {
+    for (const [source, listener] of listeners) source.removeEventListener('abort', listener);
+    listeners.length = 0;
+  };
+  for (const source of [a, b]) {
+    if (source.aborted) {
+      controller.abort(source.reason);
+      dispose();
+      break;
+    }
+    const listener = () => {
+      controller.abort(source.reason);
+      dispose();
+    };
+    source.addEventListener('abort', listener);
+    listeners.push([source, listener]);
+  }
+  return { signal: controller.signal, dispose };
+}
+
+/**
+ * Wait `ms` before a retry. Resolves early (without waiting out the delay) when `signal` aborts;
+ * the caller checks `signal.aborted` afterwards. The timer and the listener are always cleaned up.
+ */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (!signal) {
+      setTimeout(resolve, ms);
+      return;
+    }
+    if (signal.aborted) return resolve();
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 /**
  * Glassnode API client
  */
@@ -290,9 +405,21 @@ export class GlassnodeAPI {
    * Make an API request
    * @param endpoint API endpoint path
    * @param params Query parameters
+   * @param options Validated per-call options (`signal`, `timeout` overriding the config one)
    * @returns Promise resolving to the response data
    */
-  private async request<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
+  private async request<T>(
+    endpoint: string,
+    params: Record<string, string> = {},
+    options: ResolvedCallOptions = {}
+  ): Promise<T> {
+    const { signal } = options;
+    const timeout = options.timeout ?? this.timeout;
+    // A caller abort is never retried; its reason stays on `.cause`.
+    const aborted = () =>
+      new GlassnodeAbortError('Glassnode API error: the request was aborted by the caller', {
+        cause: signal?.reason,
+      });
     // The key goes in the query string (default) or the X-Api-Key header — never both, and
     // neither when there is no key (e.g. x402 mode).
     const keyInHeader = this.apiKeyLocation === 'header' && this.apiKey !== undefined;
@@ -310,66 +437,89 @@ export class GlassnodeAPI {
       if (attempt > 0) {
         const delay = this.nextRetryDelay(attempt, retryAfterMs);
         this.logger?.(`Retry ${attempt}/${this.maxRetries} after ${delay}ms`);
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        // Cut short by a caller abort (checked right below).
+        await sleep(delay, signal);
       }
+      // Covers an already-aborted signal (before any request) and an abort during the wait.
+      if (signal?.aborted) throw aborted();
 
       this.logger?.('API call:', redactApiKey(url));
 
-      // Transport step — the only part that is retried on failure.
-      let response: Response;
+      // This attempt's signal: the caller's `signal` and/or a fresh `AbortSignal.timeout()` (a
+      // new one per attempt), combined when both are set. `dispose` detaches the combiner's
+      // listeners once the attempt is over (including reading the body).
+      const attemptSignal =
+        timeout === undefined
+          ? { signal, dispose: () => {} }
+          : signal
+            ? combineSignals(signal, AbortSignal.timeout(timeout))
+            : { signal: AbortSignal.timeout(timeout), dispose: () => {} };
       try {
-        // Abort the attempt after `timeout` ms (fresh signal per attempt). Pass an `init` only
-        // when there is something to put in it (the key header and/or the signal), so with the
-        // defaults a custom `fetch` still sees a single-argument call with exactly the URL.
-        const init: RequestInit = {
-          ...(headers ? { headers } : {}),
-          ...(this.timeout !== undefined ? { signal: AbortSignal.timeout(this.timeout) } : {}),
-        };
-        response =
-          Object.keys(init).length > 0 ? await this.fetchFn(url, init) : await this.fetchFn(url);
-      } catch (error) {
-        // Already classified by a library-aware fetch (e.g. a GlassnodePaymentError from
-        // createX402Fetch): surface it unchanged and never retry it.
-        if (error instanceof GlassnodeError) throw error;
-        // Network/transport failure (including a timeout abort) — retryable.
-        retryAfterMs = undefined;
-        const failure = describeTransportFailure(error);
-        if (failure) {
-          lastError = new GlassnodeNetworkError(
-            `Glassnode API error: ${this.redact(failure.message)}`,
-            { cause: error, timedOut: failure.timedOut }
+        // Transport step — the only part that is retried on failure.
+        let response: Response;
+        try {
+          // Pass an `init` only when there is something to put in it (the key header and/or a
+          // signal), so with the defaults a custom `fetch` still sees a single-argument call with
+          // exactly the URL.
+          const init: RequestInit = {
+            ...(headers ? { headers } : {}),
+            ...(attemptSignal.signal ? { signal: attemptSignal.signal } : {}),
+          };
+          response =
+            Object.keys(init).length > 0 ? await this.fetchFn(url, init) : await this.fetchFn(url);
+        } catch (error) {
+          // Already classified by a library-aware fetch (e.g. a GlassnodePaymentError from
+          // createX402Fetch, which also covers an abort after a payment was sent): surface it
+          // unchanged and never retry it.
+          if (error instanceof GlassnodeError) throw error;
+          // Cancelled by the caller: never retried, whatever the fetch rejected with.
+          if (signal?.aborted) throw aborted();
+          // Network/transport failure (including a timeout abort) — retryable.
+          retryAfterMs = undefined;
+          const failure = describeTransportFailure(error);
+          if (failure) {
+            lastError = new GlassnodeNetworkError(
+              `Glassnode API error: ${this.redact(failure.message)}`,
+              { cause: error, timedOut: failure.timedOut }
+            );
+            if (attempt < this.maxRetries) continue;
+            throw lastError;
+          }
+          // Not recognisably an error (e.g. a string) from a custom fetch — not retried, as before.
+          throw new GlassnodeNetworkError('Unknown error occurred', {
+            cause: error,
+            timedOut: false,
+          });
+        }
+
+        if (!response.ok) {
+          const error = new GlassnodeApiError(response.status, response.statusText);
+          if (error.isRetryable && attempt < this.maxRetries) {
+            lastError = error;
+            // Honour the server's Retry-After (e.g. on 429) for the next wait, if present.
+            retryAfterMs = this.parseRetryAfter(response);
+            continue;
+          }
+          // Surface the server's error body (e.g. "Resolution 1h is not allowed") in the message.
+          const detail = await readErrorDetail(response);
+          throw detail
+            ? new GlassnodeApiError(response.status, response.statusText, detail)
+            : error;
+        }
+
+        // Success. Parsing a 200 body is NOT a transient error, so it is thrown, never retried.
+        try {
+          return (await response.json()) as T;
+        } catch (parseError) {
+          // Reading the body was cut off by the caller's abort: that is not a malformed body.
+          if (signal?.aborted) throw aborted();
+          throw new GlassnodeValidationError(
+            'Glassnode API error: failed to parse response body as JSON',
+            { cause: parseError, endpoint }
           );
-          if (attempt < this.maxRetries) continue;
-          throw lastError;
         }
-        // Not recognisably an error (e.g. a string) from a custom fetch — not retried, as before.
-        throw new GlassnodeNetworkError('Unknown error occurred', {
-          cause: error,
-          timedOut: false,
-        });
-      }
-
-      if (!response.ok) {
-        const error = new GlassnodeApiError(response.status, response.statusText);
-        if (error.isRetryable && attempt < this.maxRetries) {
-          lastError = error;
-          // Honour the server's Retry-After (e.g. on 429) for the next wait, if present.
-          retryAfterMs = this.parseRetryAfter(response);
-          continue;
-        }
-        // Surface the server's error body (e.g. "Resolution 1h is not allowed") in the message.
-        const detail = await readErrorDetail(response);
-        throw detail ? new GlassnodeApiError(response.status, response.statusText, detail) : error;
-      }
-
-      // Success. Parsing a 200 body is NOT a transient error, so it is thrown, never retried.
-      try {
-        return (await response.json()) as T;
-      } catch (parseError) {
-        throw new GlassnodeValidationError(
-          'Glassnode API error: failed to parse response body as JSON',
-          { cause: parseError, endpoint }
-        );
+      } finally {
+        attemptSignal.dispose();
       }
     }
 
@@ -403,11 +553,16 @@ export class GlassnodeAPI {
 
   /**
    * Get metadata for all assets
+   * @param options Per-call options: `signal` to cancel, `timeout` to override the config one
+   *   (see {@link CallOptions})
    * @returns Promise resolving to validated asset metadata
+   * @throws GlassnodeInputError (as a rejected promise, before any request) if `options` is invalid
+   * @throws GlassnodeAbortError if `options.signal` aborts (or was already aborted)
    */
-  async getAssetMetadata(): Promise<AssetMetadataResponse> {
+  async getAssetMetadata(options?: CallOptions): Promise<AssetMetadataResponse> {
+    const callOptions = normalizeCallOptions(options);
     const endpoint = '/v1/metadata/assets';
-    const response = await this.request<{ data?: unknown }>(endpoint);
+    const response = await this.request<{ data?: unknown }>(endpoint, {}, callOptions);
     return validateResponse(AssetMetadataResponseSchema, response?.data, endpoint);
   }
 
@@ -416,19 +571,24 @@ export class GlassnodeAPI {
    * @param metricPath Path of the metric
    * @param params Query parameters for the metric (see {@link MetricParams}); numbers, booleans
    *   and Dates are converted (a Date → unix seconds), `undefined` values are omitted
+   * @param options Per-call options: `signal` to cancel, `timeout` to override the config one
+   *   (see {@link CallOptions})
    * @returns Promise resolving to validated metric metadata
    * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
-   *   malformed, `params.f` is anything but `json`, `params` contains `path` or `api_key`, or a
-   *   param value cannot be converted (see `MetricParamValue`)
+   *   malformed, `params.f` is anything but `json`, `params` contains `path` or `api_key`, a
+   *   param value cannot be converted (see `MetricParamValue`), or `options` is invalid
+   * @throws GlassnodeAbortError if `options.signal` aborts (or was already aborted)
    */
   async getMetricMetadata(
     metricPath: string,
-    params: MetricParams = {}
+    params: MetricParams = {},
+    options?: CallOptions
   ): Promise<MetricMetadataResponse> {
     assertMetricPath(metricPath);
     const query = normalizeParams(params, { format: true, reserved: ['path'] });
+    const callOptions = normalizeCallOptions(options);
     const endpoint = '/v1/metadata/metric';
-    const response = await this.request(endpoint, { path: metricPath, ...query });
+    const response = await this.request(endpoint, { path: metricPath, ...query }, callOptions);
     return validateResponse(MetricMetadataResponseSchema, response, endpoint);
   }
 
@@ -438,29 +598,39 @@ export class GlassnodeAPI {
    * @param metricPath Path of the metric (e.g. /institutions/us_spot_etf_balances_all)
    * @param params Optional query parameters (e.g. `a` to scope stats to an asset; see
    *   {@link MetricParams} for value conversion)
+   * @param options Per-call options: `signal` to cancel, `timeout` to override the config one
+   *   (see {@link CallOptions})
    * @returns Promise resolving to validated metric stats
    * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
-   *   malformed, `params.f` is anything but `json`, `params` contains `path` or `api_key`, or a
-   *   param value cannot be converted (see `MetricParamValue`)
+   *   malformed, `params.f` is anything but `json`, `params` contains `path` or `api_key`, a
+   *   param value cannot be converted (see `MetricParamValue`), or `options` is invalid
+   * @throws GlassnodeAbortError if `options.signal` aborts (or was already aborted)
    */
   async getMetricStats(
     metricPath: string,
-    params: MetricParams = {}
+    params: MetricParams = {},
+    options?: CallOptions
   ): Promise<MetricStatsResponse> {
     assertMetricPath(metricPath);
     const query = normalizeParams(params, { format: true, reserved: ['path'] });
+    const callOptions = normalizeCallOptions(options);
     const endpoint = '/v1/metadata/metric/stats';
-    const response = await this.request(endpoint, { path: metricPath, ...query });
+    const response = await this.request(endpoint, { path: metricPath, ...query }, callOptions);
     return validateResponse(MetricStatsResponseSchema, response, endpoint);
   }
 
   /**
    * Get a list of all metrics
+   * @param options Per-call options: `signal` to cancel, `timeout` to override the config one
+   *   (see {@link CallOptions})
    * @returns Promise resolving to validated metric metadata
+   * @throws GlassnodeInputError (as a rejected promise, before any request) if `options` is invalid
+   * @throws GlassnodeAbortError if `options.signal` aborts (or was already aborted)
    */
-  async getMetricList(): Promise<MetricListResponse> {
+  async getMetricList(options?: CallOptions): Promise<MetricListResponse> {
+    const callOptions = normalizeCallOptions(options);
     const endpoint = '/v1/metadata/metrics';
-    const response = await this.request(endpoint);
+    const response = await this.request(endpoint, {}, callOptions);
     return validateResponse(MetricListResponseSchema, response, endpoint);
   }
 
@@ -469,15 +639,27 @@ export class GlassnodeAPI {
    * @param metricPath Path of the metric (e.g. /accumulation_balance)
    * @param params Query parameters for the metric, e.g. `{ a: 'BTC', s: 1609459200, i: '24h' }`
    *   or `{ a: 'BTC', s: new Date('2021-01-01') }` (see {@link MetricParams})
+   * @param options Per-call options: `signal` to cancel, `timeout` to override the config one
+   *   (see {@link CallOptions})
    * @returns Promise resolving to the response data
    * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
-   *   malformed, `params.f` is anything but `json`, `params` contains `api_key`, or a param value
-   *   cannot be converted (see `MetricParamValue`)
+   *   malformed, `params.f` is anything but `json`, `params` contains `api_key`, a param value
+   *   cannot be converted (see `MetricParamValue`), or `options` is invalid
+   * @throws GlassnodeAbortError if `options.signal` aborts (or was already aborted)
    */
-  async callMetric<T>(metricPath: string, params: MetricParams = {}): Promise<T> {
+  async callMetric<T>(
+    metricPath: string,
+    params: MetricParams = {},
+    options?: CallOptions
+  ): Promise<T> {
     assertMetricPath(metricPath);
     const query = normalizeParams(params, { format: true });
-    const response = await this.request('/v1/metrics' + metricPath, { ...query, f: 'json' });
+    const callOptions = normalizeCallOptions(options);
+    const response = await this.request(
+      '/v1/metrics' + metricPath,
+      { ...query, f: 'json' },
+      callOptions
+    );
     return response as T;
   }
 
@@ -485,16 +667,28 @@ export class GlassnodeAPI {
    * Call a bulk metric endpoint (returns data for all assets at once)
    * @param metricPath Path of the metric (e.g. /market/marketcap_usd)
    * @param params Query parameters (see {@link MetricParams})
+   * @param options Per-call options: `signal` to cancel, `timeout` to override the config one
+   *   (see {@link CallOptions})
    * @returns Promise resolving to validated bulk response
    * @throws GlassnodeInputError (as a rejected promise, before any request) if `metricPath` is
-   *   malformed, `params.f` is anything but `json`, `params` contains `api_key`, or a param value
-   *   cannot be converted (see `MetricParamValue`)
+   *   malformed, `params.f` is anything but `json`, `params` contains `api_key`, a param value
+   *   cannot be converted (see `MetricParamValue`), or `options` is invalid
+   * @throws GlassnodeAbortError if `options.signal` aborts (or was already aborted)
    */
-  async callBulkMetric(metricPath: string, params: MetricParams = {}): Promise<BulkResponse> {
+  async callBulkMetric(
+    metricPath: string,
+    params: MetricParams = {},
+    options?: CallOptions
+  ): Promise<BulkResponse> {
     assertMetricPath(metricPath);
     const query = normalizeParams(params, { format: true });
+    const callOptions = normalizeCallOptions(options);
     const endpoint = '/v1/metrics' + metricPath + '/bulk';
-    const response = await this.request<{ data?: unknown }>(endpoint, { ...query, f: 'json' });
+    const response = await this.request<{ data?: unknown }>(
+      endpoint,
+      { ...query, f: 'json' },
+      callOptions
+    );
     return validateResponse(BulkResponseSchema, response?.data, endpoint);
   }
 }

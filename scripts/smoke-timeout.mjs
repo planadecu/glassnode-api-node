@@ -1,13 +1,14 @@
 // Runtime smoke for the published CJS build (dist/), run on the Node floor (18) in CI where Vitest
 // cannot run. Proves a real `AbortSignal.timeout()` abort surfaces as a GlassnodeNetworkError
-// with `timedOut === true` on this runtime. Not published (package.json `files` is dist-only).
+// with `timedOut === true` on this runtime, and that a per-call `signal` combined with that
+// timeout (the client's own AbortSignal.any() stand-in) cancels as a GlassnodeAbortError. Not published (package.json `files` is dist-only).
 // Usage: pnpm run build && node scripts/smoke-timeout.mjs
-/* global process, console, setTimeout, clearTimeout */
+/* global process, console, setTimeout, clearTimeout, AbortController */
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { GlassnodeAPI, GlassnodeNetworkError } = require('../dist/index.js');
+const { GlassnodeAPI, GlassnodeNetworkError, GlassnodeAbortError } = require('../dist/index.js');
 
 // A fetch that never settles on its own: it only rejects, with the signal's reason, when aborted.
 function hangingFetch(_url, init) {
@@ -42,3 +43,25 @@ assert.ok(
 );
 assert.equal(error.timedOut, true, `expected timedOut === true (message: ${error.message})`);
 console.log(`timeout smoke ok on ${process.version}: ${error.name} timedOut=${error.timedOut}`);
+
+// Per-call cancellation on this runtime: the caller signal is combined with the per-attempt
+// timeout signal; aborting it must reject promptly with GlassnodeAbortError (reason on .cause).
+const controller = new AbortController();
+const reason = new Error('smoke cancel');
+const abortWatchdog = setTimeout(() => {
+  console.error('abort smoke FAILED: the request was never aborted');
+  process.exit(1);
+}, 5000);
+const pending = api.getMetricList({ signal: controller.signal, timeout: 60000 }).then(
+  () => undefined,
+  (e) => e
+);
+setTimeout(() => controller.abort(reason), 10);
+const abortError = await pending;
+clearTimeout(abortWatchdog);
+assert.ok(
+  abortError instanceof GlassnodeAbortError,
+  `expected GlassnodeAbortError, got ${abortError && abortError.name}: ${abortError && abortError.message}`
+);
+assert.equal(abortError.cause, reason, 'expected the abort reason on .cause');
+console.log(`abort smoke ok on ${process.version}: ${abortError.name}`);

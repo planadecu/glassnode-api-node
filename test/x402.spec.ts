@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { usdcDecimalToAtomic, createMaxAmountPolicy, createX402Fetch } from '../src/x402';
 import { GlassnodeAPI } from '../src/glassnode-api';
 import {
+  GlassnodeAbortError,
   GlassnodeError,
   GlassnodeApiError,
   GlassnodeInputError,
@@ -609,6 +610,84 @@ describe('createX402Fetch — an HTTP error after payment is never retried', () 
     expect((err as GlassnodeApiError).status).toBe(402);
     expect(signTypedData).toHaveBeenCalledTimes(1);
     expect(baseFetch.mock.calls.filter(isPaidCall)).toHaveLength(1);
+    expect(baseFetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('createX402Fetch — per-call signal', () => {
+  /** A base fetch whose paid (or unpaid) request hangs until its Request signal aborts. */
+  function hangOn(paid: boolean) {
+    return vi.fn((input: RequestInfo | URL) => {
+      if (isPaidCall([input]) !== paid) return Promise.resolve(response402());
+      const signal = (input as Request).signal;
+      return new Promise<Response>((_, reject) => {
+        if (signal.aborted) return reject(signal.reason);
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    });
+  }
+
+  it('the wrapped fetch receives the per-call signal in init', async () => {
+    const baseFetch = vi.fn(async () => new Response('[]', { status: 200 }));
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(),
+      fetch: baseFetch as typeof fetch,
+    });
+    const spy = vi.fn(paidFetch);
+    const controller = new AbortController();
+    await paidApi(spy as typeof fetch).getMetricList({ signal: controller.signal });
+    expect(spy.mock.calls[0][1]).toEqual({ signal: controller.signal });
+    // ...and @x402/fetch builds its Request from that init, so the base fetch sees it too.
+    controller.abort();
+    expect((baseFetch.mock.calls[0] as unknown[])[0]).toBeInstanceOf(Request);
+    expect(((baseFetch.mock.calls[0] as unknown[])[0] as Request).signal.aborted).toBe(true);
+  });
+
+  it('abort on the unpaid probe -> GlassnodeAbortError, nothing signed, not retried', async () => {
+    const baseFetch = hangOn(false);
+    const signTypedData = vi.fn(async (): Promise<`0x${string}`> => FAKE_SIGNATURE);
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(signTypedData),
+      fetch: baseFetch as typeof fetch,
+    });
+    const controller = new AbortController();
+    const pending = caught(
+      paidApi(paidFetch, { maxRetries: 2 }).getMetricList({ signal: controller.signal })
+    );
+    await vi.waitFor(() => expect(baseFetch).toHaveBeenCalledTimes(1));
+    controller.abort();
+    const err = await pending;
+    expect(err).toBeInstanceOf(GlassnodeAbortError);
+    expect(signTypedData).not.toHaveBeenCalled();
+    expect(baseFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('abort after the payment was sent -> GlassnodePaymentError (may have settled), one payment, not retried', async () => {
+    const baseFetch = hangOn(true);
+    const signTypedData = vi.fn(async (): Promise<`0x${string}`> => FAKE_SIGNATURE);
+    const paidFetch = await createX402Fetch({
+      account: fakeAccount(signTypedData),
+      fetch: baseFetch as typeof fetch,
+    });
+    const controller = new AbortController();
+    const pending = caught(
+      paidApi(paidFetch, { maxRetries: 2, timeout: 60_000 }).getMetricList({
+        signal: controller.signal,
+      })
+    );
+    await vi.waitFor(() => expect(baseFetch.mock.calls.filter(isPaidCall)).toHaveLength(1));
+    const reason = new Error('user cancelled');
+    controller.abort(reason);
+    const err = await pending;
+
+    // The money-safety signal wins over the abort classification.
+    expect(err).toBeInstanceOf(GlassnodePaymentError);
+    expect(err).not.toBeInstanceOf(GlassnodeAbortError);
+    const e = err as GlassnodePaymentError;
+    expect(e.paymentMayHaveSettled).toBe(true);
+    expect(e.timedOut).toBe(false);
+    expect(e.cause).toBe(reason);
+    expect(signTypedData).toHaveBeenCalledTimes(1);
     expect(baseFetch).toHaveBeenCalledTimes(2);
   });
 });

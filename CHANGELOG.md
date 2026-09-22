@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.21.0
+
+- **New:** per-call options on every method, as a new optional **last** argument:
+  `getAssetMetadata(options?)`, `getMetricList(options?)`, and `getMetricMetadata`,
+  `getMetricStats`, `callMetric`, `callBulkMetric` as `(path, params?, options?)`. `options` is the
+  new exported `CallOptions` type, `{ signal?: AbortSignal; timeout?: number }`.
+- `signal` cancels the call: the in-flight request, any retry wait (a backoff is cut short, not
+  slept through) and every further retry. An already-aborted signal rejects before any request.
+- **New error class `GlassnodeAbortError`** (extends `GlassnodeError`, exported): a cancellation
+  through `signal`, with the signal's `reason` on `.cause`. Never retried. It is a separate class
+  rather than a flag on `GlassnodeNetworkError` so that code retrying network errors never retries
+  a deliberate cancellation, and a timeout (`GlassnodeNetworkError`, `timedOut: true`) stays
+  distinguishable. A caller abort while the response body is read is also a `GlassnodeAbortError`,
+  not a `GlassnodeValidationError`.
+- `timeout` overrides the config `timeout` for one call, with the same per-attempt semantics. With
+  both `signal` and a timeout, each attempt aborts on whichever fires first. The two signals are
+  combined by a small built-in combiner (`AbortSignal.any()` needs Node 20.3+; the package supports
+  Node 18) that removes its listeners from the caller's signal after every attempt, so a long-lived
+  signal can be reused across many calls without leaking listeners.
+- Invalid options reject with a `GlassnodeInputError` before any request: `argument` is `options`
+  (not an object), `options.signal` (not an `AbortSignal`) or `options.timeout` (not a positive
+  integer up to `2147483647` ms).
+- x402: the per-call signal is passed to the x402 fetch in `init`. An abort before any payment was
+  sent is a `GlassnodeAbortError`; an abort after the paid request went out stays a
+  `GlassnodePaymentError` with `paymentMayHaveSettled: true`, never retried. `src/x402.ts` is
+  unchanged.
+- **Observable for callers:** none when no `options` are passed — a custom `fetch` sees exactly
+  the same calls as before (a single argument by default). JavaScript callers that passed a stray
+  extra argument to a method (e.g. `getMetricList(x)`) now get a `GlassnodeInputError` when that
+  argument is not an object (or `null`/`undefined`), or has an invalid `signal` or `timeout`. Minor bump: new feature, new error class
+  and new exported type (0.x).
+- README: "Cancellation and per-call timeouts" section, method signatures, the error table and the
+  x402 errors list. The Node 18 smoke script also checks a per-call abort.
+
 ## 0.20.0
 
 - **Fixed a money-safety bug.** In x402 mode with `maxRetries` > 0, a `429` or `5xx` answer to the
