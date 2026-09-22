@@ -253,6 +253,18 @@ matching needed.
 | `GlassnodeInputError`      | A method argument is invalid (malformed metric path, a param value that cannot be sent, `f` other than `json`, `api_key`/`path` in `params`, a bad `maxPaymentPerCall`). Raised before any request; never retried                   | `argument` (`metricPath`, `params.<name>`, `options.signal`, `options.timeout`, `maxPaymentPerCall`)                                                                           |
 | `GlassnodePaymentError`    | x402 only: the payment could not be made (price above `maxPaymentPerCall`, signer failed, unusable `402`), or the paid request failed in transit or got a non-2xx status other than `402` after the payment was sent. Never retried | `paymentMayHaveSettled` (`true`: a payment was sent and may have been charged; do not blindly retry), `status` (HTTP status of the paid response, if any), `timedOut`, `cause` |
 
+**The API key never appears in an error's `message`, `detail`, `statusText` or other string
+properties.** Text that comes from outside the library — a server or proxy error body or status
+text, a transport error, an x402/signer message, a schema-issue path — is masked before it goes
+into an error: every `api_key=<value>` is replaced with `api_key=***`, and every raw (or
+URL-encoded) copy of the configured key with `***`. Raw copies are only masked for keys of at
+least 8 characters (real Glassnode keys are much longer), so a very short placeholder key cannot
+blank out unrelated text; the `api_key=` form is always masked. `createX402Fetch()` masks the key
+it finds on each request (its `api_key` query value or `X-Api-Key` header) the same way.
+**`.cause` is not redacted**: it holds the original object (the fetch error, the `ZodError`, the
+x402 library error) unchanged, and it may quote the request URL or the key — log `err.message`
+rather than `err.cause` (or a serializer that walks `.cause`) wherever the key must not appear.
+
 ```typescript
 import {
   GlassnodeAPI,

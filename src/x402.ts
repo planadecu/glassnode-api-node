@@ -5,7 +5,7 @@ import {
   GlassnodeInputError,
   GlassnodePaymentError,
 } from './errors.js';
-import { redactApiKey } from './redact.js';
+import { redactSecrets } from './redact.js';
 
 /**
  * Minimal structural shape of the signer x402 needs: an EVM address and an EIP-712 typed-data
@@ -136,6 +136,12 @@ export async function createX402Fetch(options: X402FetchOptions): Promise<typeof
     //   later failure must not look retryable: a retry would sign a *new* payment (fresh nonce)
     //   and could charge twice. Detected from the outgoing request itself, so it also covers
     //   @x402/fetch's internal "recovered" re-payment path.
+    // - `keys`: the Glassnode API key(s) this call carries (the `api_key` query value and/or the
+    //   `X-Api-Key` header), read from the request itself since this fetch is built separately
+    //   from the client and never sees its config. Every error text raised below is masked with
+    //   them (raw and `api_key=` forms), so a key echoed by x402, the signer or the server never
+    //   reaches a message.
+    const keys = requestApiKeys(input, init);
     let baseFailure: { error: unknown } | undefined;
     let paymentSent = false;
     const trackedBaseFetch: typeof fetch = async (...args) => {
@@ -157,19 +163,57 @@ export async function createX402Fetch(options: X402FetchOptions): Promise<typeof
         // reports it as a retryable GlassnodeNetworkError).
         if (!paymentSent) throw error;
         // Transport failure after a payment was sent: the payment may have settled; never retry.
-        throw toPaidTransportError(error);
+        throw toPaidTransportError(error, keys);
       }
-      throw toPaymentError(error, paymentSent);
+      throw toPaymentError(error, paymentSent, keys);
     }
     // A non-2xx answer once a payment was sent: never hand it back as a plain response, or the
     // client would retry a 429/5xx and sign a new payment. `402` is the exception — the x402
     // "payment refused" answer — so it passes through and the client reports it as a
     // (never-retried) GlassnodeApiError(402).
     if (paymentSent && !response.ok && response.status !== 402) {
-      throw await toPaidHttpError(response);
+      throw await toPaidHttpError(response, keys);
     }
     return response;
   };
+}
+
+/**
+ * The API key(s) a request carries: its `api_key` query value and its `X-Api-Key` header (from a
+ * `Request` input and/or `init.headers`). Best-effort and never throws: an unparsable URL or
+ * header object just contributes nothing (the `api_key=` query form is still always masked).
+ */
+function requestApiKeys(input: unknown, init: RequestInit | undefined): string[] {
+  const keys: string[] = [];
+  const add = (value: string | null | undefined) => {
+    if (value) keys.push(value);
+  };
+  try {
+    const url =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.href
+          : typeof input === 'object' && input !== null && 'url' in input
+            ? String((input as { url: unknown }).url)
+            : undefined;
+    if (url) add(new URL(url).searchParams.get('api_key'));
+  } catch {
+    // Not an absolute URL: nothing to read.
+  }
+  for (const headers of [
+    typeof input === 'object' && input !== null && 'headers' in input
+      ? (input as { headers?: HeadersInit }).headers
+      : undefined,
+    init?.headers,
+  ]) {
+    try {
+      if (headers) add(new Headers(headers).get('X-Api-Key'));
+    } catch {
+      // Malformed headers: nothing to read.
+    }
+  }
+  return keys;
 }
 
 /** Request headers that carry a signed x402 payment (protocol v2 and v1 respectively). */
@@ -195,18 +239,18 @@ function carriesPayment(input: unknown, init: RequestInit | undefined): boolean 
  * settled, so it becomes a `GlassnodePaymentError` (never retried) with `paymentMayHaveSettled`,
  * the transport error on `.cause`, and `timedOut` set when it was the `AbortSignal.timeout()` abort.
  */
-function toPaidTransportError(error: unknown): GlassnodePaymentError {
+function toPaidTransportError(error: unknown, keys: string[]): GlassnodePaymentError {
   const { name, message } =
     typeof error === 'object' && error !== null
       ? (error as { name?: unknown; message?: unknown })
       : { name: undefined, message: undefined };
   const detail =
     typeof message === 'string' && message
-      ? redactApiKey(message)
+      ? redactSecrets(message, keys)
       : typeof error === 'string' && error
-        ? redactApiKey(error)
+        ? redactSecrets(error, keys)
         : typeof name === 'string' && name
-          ? name
+          ? redactSecrets(name, keys)
           : 'unknown error';
   return new GlassnodePaymentError(
     `x402 paid request failed after the payment was sent (${detail}) — the payment may have settled; not retried to avoid paying twice`,
@@ -218,13 +262,15 @@ function toPaidTransportError(error: unknown): GlassnodePaymentError {
  * Turn a non-2xx response to a request that carried a signed payment into a `GlassnodePaymentError`
  * (never retried) with `paymentMayHaveSettled`, the `status`, and the equivalent
  * `GlassnodeApiError` (status, statusText, server detail) on `.cause`. The detail is the response
- * body's message with any `api_key` query value redacted; no request header (signature) is used.
+ * body's message and the status text with the API key masked (`api_key` query values and the
+ * request's own key, see `redactSecrets`); no request header (signature) is used.
  */
-async function toPaidHttpError(response: Response): Promise<GlassnodePaymentError> {
+async function toPaidHttpError(response: Response, keys: string[]): Promise<GlassnodePaymentError> {
   const rawDetail = await readErrorDetail(response);
-  const detail = rawDetail ? redactApiKey(rawDetail) : undefined;
-  const apiError = new GlassnodeApiError(response.status, response.statusText, detail);
-  const label = [response.statusText, detail].filter(Boolean).join(' — ');
+  const detail = rawDetail ? redactSecrets(rawDetail, keys) : undefined;
+  const statusText = redactSecrets(response.statusText, keys);
+  const apiError = new GlassnodeApiError(response.status, statusText, detail);
+  const label = [statusText, detail].filter(Boolean).join(' — ');
   return new GlassnodePaymentError(
     `x402 paid request failed with HTTP ${response.status}${label ? ` (${label})` : ''} after the payment was sent — the payment may have settled; not retried to avoid paying twice`,
     { cause: apiError, paymentMayHaveSettled: true, status: response.status }
@@ -233,13 +279,17 @@ async function toPaidHttpError(response: Response): Promise<GlassnodePaymentErro
 
 /**
  * Wrap a payment-layer failure. The message is x402's own (which names the failing step, e.g.
- * "Failed to create payment payload: …"), with any `api_key` query value redacted. @x402/fetch's
- * own messages carry no key or signature material (a signer's error text is included verbatim);
- * the raw error stays on `.cause`.
+ * "Failed to create payment payload: …"), with the API key masked (`api_key` query values and the
+ * request's own key, see `redactSecrets`): x402 dumps the server's payment requirements into some
+ * messages, and a signer's error text is included verbatim. The raw error stays on `.cause`.
  */
-function toPaymentError(error: unknown, paymentSent: boolean): GlassnodePaymentError {
+function toPaymentError(
+  error: unknown,
+  paymentSent: boolean,
+  keys: string[]
+): GlassnodePaymentError {
   const detail =
-    error instanceof Error && error.message ? redactApiKey(error.message) : 'unknown error';
+    error instanceof Error && error.message ? redactSecrets(error.message, keys) : 'unknown error';
   const hint = /filtered out by policies/.test(detail)
     ? ' (the price exceeds maxPaymentPerCall)'
     : '';

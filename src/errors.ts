@@ -13,6 +13,13 @@ const STATUS_MESSAGES: Record<number, string> = {
  *
  * `name` is set explicitly on each class (rather than from `constructor.name`) so it survives
  * minification of the browser bundle.
+ *
+ * The API key never appears in the `message` or any other string property (`detail`,
+ * `statusText`, ...) of an error this library builds: text from outside (server bodies, status
+ * texts, transport and x402 errors) is masked first — `api_key=<value>` always, raw copies of the
+ * key when it has at least 8 characters. **`.cause` is not redacted**: it keeps the original
+ * object, which may quote the request URL or the key, so do not log `.cause` where the key must
+ * not appear.
  */
 export class GlassnodeError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {

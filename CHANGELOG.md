@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.21.2
+
+- **Security:** the API key no longer leaks into error messages. Before, a `GlassnodeApiError`
+  put the server's error body into `message` and `detail` unredacted, so a server or proxy that
+  echoed the request URL (`…?api_key=<key>`) or the key itself put the key into errors that
+  callers routinely log. Now every text from outside the library that goes into an error — error
+  bodies and status texts, transport errors, schema-issue summaries (whose paths carry response
+  keys), and x402 payment-layer, signer, paid-transport and paid-HTTP errors — goes through one
+  shared redaction (`src/redact.ts`): `api_key=<value>` becomes `api_key=***` (now also a bare
+  `api_key=` not preceded by `?`/`&`), and every raw, percent-encoded or form-encoded copy of the
+  key becomes `***`.
+- Raw copies are only masked for keys of at least 8 characters: the config accepts any non-empty
+  key, and masking e.g. a 3-character key everywhere would blank out unrelated words, numbers and
+  status codes. Real Glassnode keys are far longer. The `api_key=` form is always masked.
+- `createX402Fetch()` is built separately from the client and never sees its config, so it reads
+  the key from each request it is given (the `api_key` query value and/or the `X-Api-Key` header)
+  and masks that key in its errors, including the `GlassnodeApiError` on `.cause` of a paid HTTP
+  failure (whose `statusText` is now redacted too).
+- `.cause` is deliberately **not** redacted: it keeps the original object (fetch error,
+  `ZodError`, x402 error). The README and the `GlassnodeError` JSDoc now say not to log `.cause`
+  where the key must not appear.
+- **Observable for callers:** error `message`, `detail` and `statusText` show `***` where they
+  used to contain the configured key; nothing changes for errors that never contained it. Patch
+  bump: a bug fix with no API change.
+
 ## 0.21.1
 
 - Docs: the README's Browser section now says that, as of September 2026, Glassnode's API only

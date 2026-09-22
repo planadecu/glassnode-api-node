@@ -17,7 +17,7 @@ import {
   GlassnodeValidationError,
 } from './errors.js';
 import { readErrorDetail } from './error-detail.js';
-import { redactApiKey } from './redact.js';
+import { redactApiKey, redactSecrets } from './redact.js';
 import {
   AssetMetadataResponse,
   MetricMetadataResponse,
@@ -71,12 +71,21 @@ function summarizeIssues(error: ZodError, max = 3): string {
   return parts.join('; ') + (more > 0 ? ` (+${more} more)` : '');
 }
 
-/** Validate an API response against its schema, raising a GlassnodeValidationError on mismatch. */
-function validateResponse<T>(schema: ZodType<T>, data: unknown, endpoint: string): T {
+/**
+ * Validate an API response against its schema, raising a GlassnodeValidationError on mismatch.
+ * `redact` masks the API key in the issue summary: issue paths carry keys of the server's
+ * response (e.g. record keys), which is text from outside the library.
+ */
+function validateResponse<T>(
+  schema: ZodType<T>,
+  data: unknown,
+  endpoint: string,
+  redact: (text: string) => string
+): T {
   const result = schema.safeParse(data);
   if (result.success) return result.data;
   throw new GlassnodeValidationError(
-    `Glassnode API error: response from ${endpoint} did not match the expected schema — ${summarizeIssues(result.error)}`,
+    `Glassnode API error: response from ${endpoint} did not match the expected schema — ${redact(summarizeIssues(result.error))}`,
     { cause: result.error, endpoint }
   );
 }
@@ -393,12 +402,13 @@ export class GlassnodeAPI {
   }
 
   /**
-   * Mask the API key in text that may have echoed it: any `api_key=` query value, plus any raw
-   * occurrence of the configured key (e.g. a transport error quoting the `X-Api-Key` header).
+   * Mask the API key in text from outside the library before it goes into an error: any
+   * `api_key=` query value, plus any raw (or URL-encoded) occurrence of the configured key when
+   * it is long enough to mask safely (see `redactSecrets`). Applied to server error bodies and
+   * status texts, transport error messages and schema-issue summaries.
    */
   private redact(text: string): string {
-    const masked = redactApiKey(text);
-    return this.apiKey ? masked.split(this.apiKey).join('***') : masked;
+    return redactSecrets(text, [this.apiKey]);
   }
 
   /**
@@ -493,18 +503,20 @@ export class GlassnodeAPI {
         }
 
         if (!response.ok) {
-          const error = new GlassnodeApiError(response.status, response.statusText);
+          // The status text comes from the server (or a proxy) too, so it is redacted as well.
+          const statusText = this.redact(response.statusText);
+          const error = new GlassnodeApiError(response.status, statusText);
           if (error.isRetryable && attempt < this.maxRetries) {
             lastError = error;
             // Honour the server's Retry-After (e.g. on 429) for the next wait, if present.
             retryAfterMs = this.parseRetryAfter(response);
             continue;
           }
-          // Surface the server's error body (e.g. "Resolution 1h is not allowed") in the message.
-          const detail = await readErrorDetail(response);
-          throw detail
-            ? new GlassnodeApiError(response.status, response.statusText, detail)
-            : error;
+          // Surface the server's error body (e.g. "Resolution 1h is not allowed") in the message,
+          // with the API key masked: a server or proxy may echo the request URL or the key.
+          const rawDetail = await readErrorDetail(response);
+          const detail = rawDetail ? this.redact(rawDetail) : undefined;
+          throw detail ? new GlassnodeApiError(response.status, statusText, detail) : error;
         }
 
         // Success. Parsing a 200 body is NOT a transient error, so it is thrown, never retried.
@@ -563,7 +575,9 @@ export class GlassnodeAPI {
     const callOptions = normalizeCallOptions(options);
     const endpoint = '/v1/metadata/assets';
     const response = await this.request<{ data?: unknown }>(endpoint, {}, callOptions);
-    return validateResponse(AssetMetadataResponseSchema, response?.data, endpoint);
+    return validateResponse(AssetMetadataResponseSchema, response?.data, endpoint, (t) =>
+      this.redact(t)
+    );
   }
 
   /**
@@ -589,7 +603,9 @@ export class GlassnodeAPI {
     const callOptions = normalizeCallOptions(options);
     const endpoint = '/v1/metadata/metric';
     const response = await this.request(endpoint, { path: metricPath, ...query }, callOptions);
-    return validateResponse(MetricMetadataResponseSchema, response, endpoint);
+    return validateResponse(MetricMetadataResponseSchema, response, endpoint, (t) =>
+      this.redact(t)
+    );
   }
 
   /**
@@ -616,7 +632,7 @@ export class GlassnodeAPI {
     const callOptions = normalizeCallOptions(options);
     const endpoint = '/v1/metadata/metric/stats';
     const response = await this.request(endpoint, { path: metricPath, ...query }, callOptions);
-    return validateResponse(MetricStatsResponseSchema, response, endpoint);
+    return validateResponse(MetricStatsResponseSchema, response, endpoint, (t) => this.redact(t));
   }
 
   /**
@@ -631,7 +647,7 @@ export class GlassnodeAPI {
     const callOptions = normalizeCallOptions(options);
     const endpoint = '/v1/metadata/metrics';
     const response = await this.request(endpoint, {}, callOptions);
-    return validateResponse(MetricListResponseSchema, response, endpoint);
+    return validateResponse(MetricListResponseSchema, response, endpoint, (t) => this.redact(t));
   }
 
   /**
@@ -689,6 +705,6 @@ export class GlassnodeAPI {
       { ...query, f: 'json' },
       callOptions
     );
-    return validateResponse(BulkResponseSchema, response?.data, endpoint);
+    return validateResponse(BulkResponseSchema, response?.data, endpoint, (t) => this.redact(t));
   }
 }
