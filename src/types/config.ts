@@ -2,7 +2,8 @@ import { z } from 'zod';
 import type { GlassnodeHooks } from './hooks.js';
 
 /**
- * Logger function type for API call logging
+ * Logger function type for API call logging. It is never awaited, and a logger that throws or
+ * returns a rejected promise is ignored: it cannot change a call's result, retries or errors.
  */
 export type Logger = (message: string, ...args: unknown[]) => void;
 
@@ -74,7 +75,7 @@ export const GlassnodeConfigSchema = z
     /** Route requests through the x402 paid endpoint (`https://x402.glassnode.com`). */
     x402: z.boolean().default(false),
 
-    /** Optional logger for API call debugging. */
+    /** Optional logger for API call debugging; its own failures (throw/rejection) are ignored. */
     logger: z.function().optional(),
 
     /**

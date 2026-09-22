@@ -479,6 +479,18 @@ function errorStatus(error: GlassnodeError): number | undefined {
 }
 
 /**
+ * If `value` is a thenable (e.g. the promise an `async` callback returns), attach `handler` for its
+ * rejection so it never becomes an unhandled rejection. May throw (a throwing `then` getter or
+ * `then` call); callers wrap it in `try`.
+ */
+function onRejected(value: unknown, handler: (error: unknown) => void): void {
+  if ((typeof value === 'object' || typeof value === 'function') && value !== null) {
+    const then = (value as PromiseLike<unknown>).then;
+    if (typeof then === 'function') then.call(value, undefined, handler);
+  }
+}
+
+/**
  * Glassnode API client
  */
 export class GlassnodeAPI {
@@ -539,27 +551,29 @@ export class GlassnodeAPI {
     const hook = this.hooks?.[name] as ((event: HookEvent<K>) => unknown) | undefined;
     if (!hook) return;
     try {
-      const result = hook(build());
-      if (
-        (typeof result === 'object' || typeof result === 'function') &&
-        result !== null &&
-        typeof (result as PromiseLike<unknown>).then === 'function'
-      ) {
-        (result as PromiseLike<unknown>).then(undefined, (error: unknown) =>
-          this.reportHookFailure(name, error)
-        );
-      }
+      onRejected(hook(build()), (error) => this.reportHookFailure(name, error));
     } catch (error) {
       this.reportHookFailure(name, error);
     }
   }
 
-  /** Pass a hook's failure to the logger; a logger that throws here is ignored too. */
+  /** Pass a hook's failure to the logger (which is itself guarded, see `log`). */
   private reportHookFailure(name: keyof GlassnodeHooks, error: unknown): void {
+    this.log(`Hook ${name} failed:`, error);
+  }
+
+  /**
+   * Call the configured `logger`, if any. Never awaited; a throw or a rejected promise from it is
+   * swallowed silently — it cannot be reported to the logger that just failed, and hooks are for
+   * the call's own events — so a logger can never change a call's outcome, retries or timing,
+   * nor cause an unhandled rejection. Every logger call in the library goes through here.
+   */
+  private log(message: string, ...args: unknown[]): void {
+    if (!this.logger) return;
     try {
-      this.logger?.(`Hook ${name} failed:`, error);
+      onRejected(this.logger(message, ...args), () => {});
     } catch {
-      // A failing hook must never break a call, even through the logger.
+      // Ignored: a debug-logging callback must never break a call.
     }
   }
 
@@ -653,7 +667,7 @@ export class GlassnodeAPI {
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       if (attempt > 0) {
         const delay = this.nextRetryDelay(attempt, retryAfterMs);
-        this.logger?.(`Retry ${attempt}/${this.maxRetries} after ${delay}ms`);
+        this.log(`Retry ${attempt}/${this.maxRetries} after ${delay}ms`);
         const failed = lastError;
         this.emit('onRetry', () => ({
           ...GlassnodeAPI.eventBase(trace),
@@ -668,7 +682,7 @@ export class GlassnodeAPI {
       // Covers an already-aborted signal (before any request) and an abort during the wait.
       if (signal?.aborted) throw aborted();
 
-      this.logger?.('API call:', redactApiKey(url));
+      this.log('API call:', redactApiKey(url));
       trace.attempt = attempt + 1;
       this.emit('onRequest', () => GlassnodeAPI.eventBase(trace));
 

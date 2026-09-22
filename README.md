@@ -112,7 +112,7 @@ const data = await api.callMetric('/market/price_usd_close', {
 | `apiUrl`         | `string` (URL)                                  | `https://api.glassnode.com` | Base URL for the API; with `x402` the default is `https://x402.glassnode.com` (an explicit value wins)        |
 | `apiKeyLocation` | `'query' \| 'header'`                           | `'query'`                   | Send the key as the `api_key` query parameter or the `X-Api-Key` header (server-side only; see below)         |
 | `x402`           | `boolean`                                       | `false`                     | Route through the paid x402 endpoint (see [Paid calls with x402](#paid-calls-with-x402))                      |
-| `logger`         | `(message: string, ...args: unknown[]) => void` | —                           | Callback for debug logging (e.g. `console.log`)                                                               |
+| `logger`         | `(message: string, ...args: unknown[]) => void` | —                           | Callback for debug logging (e.g. `console.log`); its failures are ignored                                     |
 | `hooks`          | `GlassnodeHooks`                                | —                           | Structured `onRequest` / `onResponse` / `onRetry` / `onError` callbacks (see [Observability](#observability)) |
 | `fetch`          | `typeof fetch`                                  | `globalThis.fetch`          | Custom fetch implementation (or an x402-wrapped fetch); required with `x402`                                  |
 | `maxRetries`     | `number`                                        | `0`                         | Retries for retryable failures (`429`, `5xx`, network errors, timeouts); a non-negative integer               |
@@ -465,8 +465,11 @@ await api.callMetric('/market/mvrv', { a: 'BTC' }, { signal: AbortSignal.timeout
 ## Observability
 
 The `logger` option gets two free-text debug lines: `logger('API call:', url)` before each attempt
-(the URL with `api_key=***`) and `logger('Retry n/m after Xms')` before each retry wait. For metrics, tracing or structured logs, pass
-`hooks` instead (or as well) — each receives one structured event object:
+(the URL with `api_key=***`) and `logger('Retry n/m after Xms')` before each retry wait. It is
+called synchronously and never awaited, and a logger that throws or returns a rejected promise is
+ignored — silently, since there is nowhere left to report it — so it never changes a call's result,
+retries or error. For metrics, tracing or structured logs, pass `hooks` instead (or as well) — each
+receives one structured event object:
 
 ```typescript
 const api = new GlassnodeAPI({

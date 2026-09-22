@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.24.2
+
+- Fixed: a `logger` that throws (or returns a rejected promise) can no longer change a call.
+  Before, a throw from the `'API call:'` line made the call reject with that raw error — not a
+  `GlassnodeError`, and without firing `onError` — even when the request would have succeeded, and
+  a throw from the `'Retry …'` line aborted the retries; a logger returning a rejected promise
+  caused an unhandled rejection (also when it was reporting a hook failure). Every logger call now
+  goes through one guard: the logger is still called synchronously with the same arguments and is
+  never awaited, and its own failure is swallowed silently (it cannot be reported to the logger
+  that just failed, and hooks are for the call's own events). Results, retries, retry waits, error
+  classes and hook events are the same as with a working logger.
+- Docs: README (config table, Observability) and the `Logger` JSDoc note that logger failures are
+  ignored.
+
 ## 0.24.1
 
 - Docs: accuracy pass over the README against the code. Retries: `maxRetries` also retries
