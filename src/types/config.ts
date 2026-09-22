@@ -33,13 +33,15 @@ const timerMs = () =>
     .max(MAX_TIMER_MS, `must be at most ${MAX_TIMER_MS} ms (the largest timer delay)`);
 
 /**
- * One optional hook: any function, kept as given (`z.custom`, unlike `z.function()`, does not wrap
- * it), typed with its event so hooks get contextual types in `GlassnodeConfig`.
+ * A function option, checked with `typeof v === 'function'` and kept as given: `z.custom`, unlike
+ * `z.function()` (which replaces the value with a wrapper), so the client calls the very function
+ * that was passed. `T` is the option's public type, which gives callbacks contextual types in
+ * `GlassnodeConfig`.
  */
-const hook = <K extends keyof GlassnodeHooks>() =>
-  z
-    .custom<NonNullable<GlassnodeHooks[K]>>((v) => typeof v === 'function', 'must be a function')
-    .optional();
+const fn = <T>() => z.custom<T>((v) => typeof v === 'function', 'must be a function');
+
+/** One optional hook, typed with its event. */
+const hook = <K extends keyof GlassnodeHooks>() => fn<NonNullable<GlassnodeHooks[K]>>().optional();
 
 /** The `hooks` option. Strict, so a misspelled hook name fails instead of never firing. */
 const HooksSchema = z.strictObject({
@@ -76,7 +78,7 @@ export const GlassnodeConfigSchema = z
     x402: z.boolean().default(false),
 
     /** Optional logger for API call debugging; its own failures (throw/rejection) are ignored. */
-    logger: z.function().optional(),
+    logger: fn<Logger>().optional(),
 
     /**
      * Optional structured observability hooks (`onRequest`, `onResponse`, `onRetry`, `onError`),
@@ -86,7 +88,7 @@ export const GlassnodeConfigSchema = z
     hooks: HooksSchema.optional(),
 
     /** Optional custom fetch function (e.g. an x402-wrapped fetch, or for testing). */
-    fetch: z.function().optional(),
+    fetch: fn<FetchFn>().optional(),
 
     /**
      * Maximum number of retries for retryable failures: a `429`/`5xx` response, or a transport

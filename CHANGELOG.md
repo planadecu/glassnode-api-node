@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.25.0
+
+- Types: `GlassnodeConfig['logger']` is now `Logger` (`(message: string, ...args: unknown[]) => void`)
+  and `GlassnodeConfig['fetch']` is `FetchFn` (`typeof fetch`), as documented, instead of Zod's
+  generic function type (`(...args: never[]) => unknown`), which accepted any function. Inline
+  callbacks now get contextual types (`logger: (message, ...args) => …` gives `message: string`;
+  `fetch: async (input, init) => …` gives the `fetch` parameter types), and the client no longer
+  casts either option internally.
+- **Compile-time change for callers (0.x minor):** a value that is not assignable to `typeof fetch`
+  or `Logger` no longer type-checks. Most notably, a custom fetch declared with a narrower input
+  (`async (url: string, init?: RequestInit) => …`) must declare its first parameter as
+  `Parameters<typeof fetch>[0]` (or `unknown`), or be cast with `as typeof fetch`; the same applies
+  to a fetch with its own `Request`/`Response` types (e.g. `node-fetch`, or `undici`'s `fetch`
+  imported directly in a project whose `lib` includes `DOM`). `globalThis.fetch`, `vi.fn()` mocks,
+  the fetch from `createX402Fetch()` and `console.log`-style loggers are unaffected.
+- Changed: `logger` and `fetch` are validated with `typeof value === 'function'` (like `hooks`)
+  and kept as given. Before, `z.function()` replaced each with a Zod wrapper that forwarded its
+  arguments, `this` and return value unchanged, so calls behaved the same but the client held a
+  different function (e.g. its `length` was `0`). A non-function is still a `GlassnodeConfigError`;
+  its message now reads `logger: must be a function` instead of Zod's generic
+  `Invalid input: expected function, received string`.
+
 ## 0.24.3
 
 - Docs: `examples/README.md` now documents `ex.bulk.market-cap.ts`; lists dependencies exactly as in

@@ -31,7 +31,7 @@ function okResponse(body: unknown = mockMetricListResponse): Response {
 
 /** A fetch that never settles on its own: it rejects with the signal's reason once aborted. */
 function hangingFetch() {
-  return vi.fn((_url: string, init?: RequestInit) => {
+  return vi.fn((_input: unknown, init?: RequestInit) => {
     return new Promise<Response>((_resolve, reject) => {
       const signal = init?.signal;
       if (!signal) return;
@@ -216,7 +216,7 @@ describe('per-call options: timeout', () => {
   it('a longer per-call timeout overrides a short config timeout', async () => {
     // Answers after 80 ms, unless aborted first.
     const fetchFn = vi.fn(
-      (_url: string, init?: RequestInit) =>
+      (_input: unknown, init?: RequestInit) =>
         new Promise<Response>((resolve, reject) => {
           const timer = setTimeout(() => resolve(okResponse()), 80);
           init?.signal?.addEventListener('abort', () => {

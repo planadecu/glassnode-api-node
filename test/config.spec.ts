@@ -1,5 +1,14 @@
-import { describe, it, expect } from 'vitest';
-import { GlassnodeConfigSchema, DEFAULT_API_URL, X402_API_URL } from '../src/types/config';
+import { describe, it, expect, expectTypeOf, vi } from 'vitest';
+import {
+  GlassnodeConfigSchema,
+  DEFAULT_API_URL,
+  X402_API_URL,
+  type FetchFn,
+  type GlassnodeConfig,
+  type Logger,
+} from '../src/types/config';
+import type { createX402Fetch } from '../src/x402';
+import { mockMetricListResponse } from './mocks/metadata.mock';
 import { GlassnodeAPI } from '../src/glassnode-api';
 import { GlassnodeConfigError } from '../src/errors';
 
@@ -62,5 +71,112 @@ describe('GlassnodeConfigSchema', () => {
         expect((err as Error).message).toContain('2147483647');
       }
     );
+  });
+});
+
+describe('logger and fetch options', () => {
+  const ok = () => new Response('[]', { status: 200 });
+
+  it('types logger as Logger and fetch as FetchFn (typeof fetch)', () => {
+    expectTypeOf<GlassnodeConfig['logger']>().toEqualTypeOf<Logger | undefined>();
+    expectTypeOf<GlassnodeConfig['fetch']>().toEqualTypeOf<FetchFn | undefined>();
+    expectTypeOf<FetchFn>().toEqualTypeOf<typeof fetch>();
+  });
+
+  it('contextually types inline logger and fetch callbacks', () => {
+    const config: GlassnodeConfig = {
+      apiKey: 'k',
+      logger: (message, ...args) => {
+        message satisfies string;
+        expectTypeOf(message).toEqualTypeOf<string>();
+        expectTypeOf(args).toEqualTypeOf<unknown[]>();
+      },
+      fetch: async (input, init) => {
+        expectTypeOf(input).toEqualTypeOf<Parameters<typeof fetch>[0]>();
+        expectTypeOf(init).toEqualTypeOf<RequestInit | undefined>();
+        return ok();
+      },
+    };
+    expect(() => new GlassnodeAPI(config)).not.toThrow();
+  });
+
+  it('accepts common logger and fetch implementations', () => {
+    type X402Fetch = Awaited<ReturnType<typeof createX402Fetch>>;
+    const undiciLike = async (
+      input: string | URL | Request,
+      init?: RequestInit
+    ): Promise<Response> => (void input, void init, ok());
+    const configs: GlassnodeConfig[] = [
+      { apiKey: 'k', logger: console.log, fetch: globalThis.fetch },
+      { apiKey: 'k', logger: console.error, fetch: vi.fn() },
+      { apiKey: 'k', logger: vi.fn(), fetch: vi.fn<FetchFn>().mockResolvedValue(ok()) },
+      { apiKey: 'k', logger: () => {}, fetch: undiciLike },
+      {
+        apiKey: 'k',
+        logger: (m: string) => void m,
+        fetch: async (url: unknown) => (void url, ok()),
+      },
+      { x402: true, fetch: undefined as unknown as X402Fetch },
+    ];
+    expect(configs).toHaveLength(6);
+  });
+
+  it('rejects mistyped logger and fetch at compile time', () => {
+    const bad: GlassnodeConfig[] = [
+      // @ts-expect-error -- not a function
+      { apiKey: 'k', logger: 'nope' },
+      // @ts-expect-error -- not a function
+      { apiKey: 'k', fetch: 42 },
+      // @ts-expect-error -- the message is a string, not a number
+      { apiKey: 'k', logger: (m: number) => void m },
+      // @ts-expect-error -- fetch must resolve to a Response
+      { apiKey: 'k', fetch: async () => 'body' },
+      // A fetch must accept every `fetch` input (`RequestInfo | URL`), not only a string: declare the
+      // parameter as `Parameters<typeof fetch>[0]` (or `unknown`), or cast to `typeof fetch`.
+      // @ts-expect-error -- narrower input than `typeof fetch`
+      { apiKey: 'k', fetch: async (url: string) => (void url, ok()) },
+    ];
+    expect(bad).toHaveLength(5);
+  });
+
+  it.each(['logger', 'fetch'] as const)(
+    'rejects a non-function %s as a GlassnodeConfigError',
+    (field) => {
+      let err: unknown;
+      try {
+        new GlassnodeAPI({ apiKey: 'k', [field]: 'nope' } as never);
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeInstanceOf(GlassnodeConfigError);
+      expect((err as Error).message).toContain(field);
+      expect((err as Error).message).toContain('must be a function');
+    }
+  );
+
+  it('keeps logger and fetch as given (not wrapped) when parsing', () => {
+    const logger: Logger = () => {};
+    const fetchFn: FetchFn = async () => ok();
+    const parsed = GlassnodeConfigSchema.parse({ apiKey: 'k', logger, fetch: fetchFn });
+    expect(parsed.logger).toBe(logger);
+    expect(parsed.fetch).toBe(fetchFn);
+  });
+
+  it('calls exactly the logger and fetch that were passed', async () => {
+    const calls: string[] = [];
+    // Plain functions (not spies), so the check is on identity, not on a spy's bookkeeping.
+    const logger: Logger = () => {
+      calls.push('logger');
+    };
+    const fetchFn: FetchFn = async () => {
+      calls.push('fetch');
+      return new Response(JSON.stringify(mockMetricListResponse), { status: 200 });
+    };
+    const api = new GlassnodeAPI({ apiKey: 'k', logger, fetch: fetchFn });
+    const internals = api as unknown as { logger: unknown; fetchFn: unknown };
+    expect(internals.logger).toBe(logger);
+    expect(internals.fetchFn).toBe(fetchFn);
+    await api.getMetricList();
+    expect(calls).toEqual(['logger', 'fetch']);
   });
 });

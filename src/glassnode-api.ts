@@ -523,9 +523,9 @@ export class GlassnodeAPI {
     this.apiKey = validatedConfig.apiKey;
     this.apiKeyLocation = validatedConfig.apiKeyLocation;
     this.apiUrl = validatedConfig.apiUrl ?? (validatedConfig.x402 ? X402_API_URL : DEFAULT_API_URL);
-    this.logger = validatedConfig.logger as Logger | undefined;
+    this.logger = validatedConfig.logger;
     this.hooks = validatedConfig.hooks;
-    this.fetchFn = (validatedConfig.fetch as FetchFn) ?? globalThis.fetch;
+    this.fetchFn = validatedConfig.fetch ?? globalThis.fetch;
     this.maxRetries = validatedConfig.maxRetries;
     this.retryDelay = validatedConfig.retryDelay;
     this.maxRetryDelay = validatedConfig.maxRetryDelay;
