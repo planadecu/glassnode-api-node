@@ -90,8 +90,11 @@ constructor; an invalid config throws `GlassnodeConfigError`):
 - `apiKeyLocation` (optional) - `'query'` (default, `api_key` query param) or `'header'` (`X-Api-Key`
   header, keeps the key out of URLs). `'header'` is server-side only: the API's CORS preflight does
   not allow `X-Api-Key`, so browsers block it. With `'header'`, a custom `fetch` gets
-  `(url, { headers })` (+ `signal` when a timeout or per-call signal is set); with no key, no header
-  is sent.
+  `(url, { headers, redirect: 'manual' })` (+ `signal` when a timeout or per-call signal is set) so
+  `X-Api-Key` is never resent to a redirect target (a 3xx surfaces as a non-retried
+  `GlassnodeApiError`); with no key, no header is sent. The default `'query'` path keeps calling
+  `fetch(url)` with one argument. `createX402Fetch` likewise forces `redirect: 'manual'` (keeps
+  `'error'`) so a signed payment header is never sent cross-origin.
 - `apiUrl` (optional) - Base URL, defaults to `https://api.glassnode.com`, or
   `https://x402.glassnode.com` when `x402` is set; an explicit value always wins
 - `x402` (optional) - Route through the paid x402 endpoint (default `false`); requires `fetch` (an

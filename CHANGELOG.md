@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.27.0
+
+### Security
+
+- With `apiKeyLocation: 'header'`, the client no longer follows redirects: it sends
+  `redirect: 'manual'` with the `X-Api-Key` header, because `fetch`'s default `redirect: 'follow'`
+  resends custom headers to whatever origin a `3xx` names (including an `https` → `http`
+  downgrade). A `3xx` now surfaces as a non-retried `GlassnodeApiError` with that status whose
+  message says the redirect was not followed (it never contains the key or the `Location`).
+- The fetch from `createX402Fetch()` never follows redirects either (`redirect: 'manual'`; a
+  caller's `'error'` is kept), so a signed `PAYMENT-SIGNATURE` / `X-PAYMENT` header is never sent to
+  a redirect target, and a redirect target can no longer price (and collect) the payment. A `3xx` to
+  the unpaid request is a `GlassnodeApiError` (nothing signed); a `3xx` to the paid request stays a
+  `GlassnodePaymentError` with `paymentMayHaveSettled: true`, never retried.
+- The default `apiKeyLocation: 'query'` path is unchanged: a custom `fetch` is still called as
+  `fetch(url)`, and redirects are followed as before.
+
+### Behaviour change
+
+- Header mode: a custom `fetch` now receives `redirect: 'manual'` in `init`, and a redirecting proxy
+  in front of the API now fails instead of being followed — point `apiUrl` at the final URL.
+  Minor bump to flag this.
+
 ## 0.26.3
 
 - Security (tooling): `scripts/record-fixtures.mjs` no longer follows redirects. It used fetch's

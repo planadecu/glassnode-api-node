@@ -298,7 +298,7 @@ describe('per-call options: default path unchanged', () => {
     expect(fetchFn.mock.calls[3]).toEqual(fetchFn.mock.calls[4]);
   });
 
-  it('config timeout and no options: init still holds only the signal (plus the key header)', async () => {
+  it('config timeout and no options: init still holds only the signal (plus the key header and redirect: manual)', async () => {
     const fetchFn = vi.fn(async () => okResponse());
     const api = new GlassnodeAPI({
       apiKey: API_KEY,
@@ -308,7 +308,7 @@ describe('per-call options: default path unchanged', () => {
     });
     await api.getMetricList();
     const init = (fetchFn.mock.calls[0] as unknown[])[1] as RequestInit;
-    expect(Object.keys(init).sort()).toEqual(['headers', 'signal']);
+    expect(Object.keys(init).sort()).toEqual(['headers', 'redirect', 'signal']);
   });
 });
 

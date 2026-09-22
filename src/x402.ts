@@ -93,6 +93,14 @@ export function createMaxAmountPolicy(maxAtomic: bigint) {
  *   answered with a non-2xx status other than `402` — e.g. a proxy `502`/`504` after the origin
  *   settled, a `429`, a `400` — (`status` set, the equivalent `GlassnodeApiError` on `.cause`).
  *
+ * Redirects are never followed: the returned fetch passes `redirect: 'manual'` (a caller's
+ * `redirect: 'error'` is kept; `'follow'` is overridden), because fetch's default `'follow'` resends
+ * custom headers — the signed `PAYMENT-SIGNATURE` / `X-PAYMENT` — to whatever origin a 3xx names,
+ * and a redirected unpaid request could be priced (and paid) by the redirect target. A 3xx to the
+ * unpaid request is returned as-is (the client reports `GlassnodeApiError` with the 3xx status,
+ * nothing signed); a 3xx to the paid request is a `GlassnodePaymentError` with `status` and
+ * `paymentMayHaveSettled: true`, like any other non-2xx after payment.
+ *
  * A rejection of, or a non-2xx answer to, the *unpaid* request (no payment signed yet) is passed
  * through unchanged, so the client still reports and retries it (`GlassnodeNetworkError`, or
  * `GlassnodeApiError` for `429`/`5xx`). A `402` the server returns to the paid request (it
@@ -163,7 +171,7 @@ export async function createX402Fetch(options: X402FetchOptions): Promise<typeof
     const paidFetch = wrapFetchWithPayment(trackedBaseFetch, paymentClient) as typeof fetch;
     let response: Response;
     try {
-      response = await paidFetch(input, init);
+      response = await paidFetch(input, withoutRedirectFollow(input, init));
     } catch (error) {
       if (baseFailure && baseFailure.error === error) {
         // Transport failure before any payment was sent: pass it through untouched (the client
@@ -183,6 +191,23 @@ export async function createX402Fetch(options: X402FetchOptions): Promise<typeof
     }
     return response;
   };
+}
+
+/**
+ * `init` with redirects not followed, so neither the signed payment (`PAYMENT-SIGNATURE` /
+ * `X-PAYMENT`) nor an `X-Api-Key` header is ever resent to another origin: fetch's default
+ * `redirect: 'follow'` resends custom headers on a cross-origin 3xx (including https→http). A
+ * caller's `'error'` or `'manual'` (on `init`, else on a `Request` input) is kept; anything else,
+ * including an explicit `'follow'`, becomes `'manual'`. @x402/fetch builds both the unpaid and the
+ * paid request from this `init`, so a 3xx to either comes back as a plain response instead.
+ */
+function withoutRedirectFollow(input: unknown, init: RequestInit | undefined): RequestInit {
+  const requested =
+    init?.redirect ??
+    (typeof input === 'object' && input !== null && 'redirect' in input
+      ? (input as { redirect?: unknown }).redirect
+      : undefined);
+  return { ...init, redirect: requested === 'error' ? 'error' : 'manual' };
 }
 
 /**

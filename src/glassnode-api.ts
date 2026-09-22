@@ -703,8 +703,13 @@ export class GlassnodeAPI {
           // Pass an `init` only when there is something to put in it (the key header and/or a
           // signal), so with the defaults a custom `fetch` still sees a single-argument call with
           // exactly the URL.
+          // With the key in a header, redirects are not followed (`redirect: 'manual'`): fetch
+          // would resend `X-Api-Key` to whatever origin a 3xx names (only `Authorization`-style
+          // headers are dropped cross-origin), including an https→http downgrade. The 3xx then
+          // surfaces as a non-retried GlassnodeApiError. In the query-string mode the redirect
+          // target is whatever the server put in `Location`, so nothing is added there.
           const init: RequestInit = {
-            ...(headers ? { headers } : {}),
+            ...(headers ? { headers, redirect: 'manual' as const } : {}),
             ...(attemptSignal.signal ? { signal: attemptSignal.signal } : {}),
           };
           response =

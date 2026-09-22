@@ -171,7 +171,7 @@ describe('GlassnodeAPI', () => {
       const [url, init] = fetchFn.mock.calls[0] as [string, RequestInit];
       expect(url).toBe(`${DEFAULT_API_URL}${METRICS_METADATA_ENDPOINT}?`);
       expect(url).not.toContain(API_KEY);
-      expect(init).toEqual({ headers: { 'X-Api-Key': API_KEY } });
+      expect(init).toEqual({ headers: { 'X-Api-Key': API_KEY }, redirect: 'manual' });
     });
 
     it("'header' keeps other query params in the URL", async () => {

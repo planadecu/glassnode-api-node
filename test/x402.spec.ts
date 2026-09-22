@@ -771,9 +771,10 @@ async function detectedAsPaid(input: unknown, init?: RequestInit): Promise<boole
       expect((err as GlassnodePaymentError).status).toBe(503);
       result = true;
     }
-    // The stand-in was in effect: the base fetch saw exactly the shape under test.
+    // The stand-in was in effect: the base fetch saw exactly the shape under test (plus the
+    // `redirect: 'manual'` createX402Fetch always adds so a payment is never sent to a redirect).
     expect(baseFetch).toHaveBeenCalledTimes(1);
-    expect(baseFetch.mock.calls[0]).toEqual([input, init]);
+    expect(baseFetch.mock.calls[0]).toEqual([input, { ...init, redirect: 'manual' }]);
     expect((baseFetch.mock.calls[0] as unknown[])[0]).toBe(input);
     return result;
   } finally {

@@ -38,7 +38,11 @@ export class GlassnodeApiError extends GlassnodeError {
   readonly detail?: string;
 
   constructor(status: number, statusText: string, detail?: string) {
-    const base = STATUS_MESSAGES[status] ?? statusText;
+    const base =
+      STATUS_MESSAGES[status] ??
+      (status >= 300 && status < 400
+        ? `Redirect not followed${statusText ? ` (${statusText})` : ''} — the client never sends the X-Api-Key header or an x402 payment to a redirect target; point apiUrl at the final URL`
+        : statusText);
     super(`API request failed (${status}): ${base}${detail ? ` — ${detail}` : ''}`);
     this.name = 'GlassnodeApiError';
     this.status = status;

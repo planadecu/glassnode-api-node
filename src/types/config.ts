@@ -20,6 +20,8 @@ export type FetchFn = typeof fetch;
 /**
  * Type of the `fetch` config option: the call the client makes. It is only ever called with a
  * string URL, as `fetch(url)` or `fetch(url, init)`, and must resolve to a standard `Response`.
+ * When `init` carries the `X-Api-Key` header it also sets `redirect: 'manual'`; a custom fetch
+ * should honour it (or not follow redirects at all) so the key never reaches another origin.
  * `globalThis.fetch`, `vi.fn()` mocks, the fetch from `createX402Fetch()` and string-only custom
  * fetches (`(url: string, init?: RequestInit) => Promise<Response>`) all fit.
  */
@@ -77,6 +79,12 @@ export const GlassnodeConfigSchema = z
      * `'header'` as the `X-Api-Key` request header, which keeps the key out of URLs (and so out
      * of access logs, proxies, tracing and transport errors). `'header'` is for server-side use:
      * the Glassnode API's CORS preflight does not allow `X-Api-Key`, so browsers block it.
+     *
+     * With `'header'`, redirects are not followed (the request is sent with `redirect: 'manual'`):
+     * fetch would otherwise resend `X-Api-Key` to whatever origin a 3xx names. A 3xx surfaces as
+     * a non-retried `GlassnodeApiError` with that status; point `apiUrl` at the final URL.
+     * `'query'` keeps fetch's default redirect handling (the URL, key included, goes wherever the
+     * server's `Location` says, which only the server that already received the key controls).
      */
     apiKeyLocation: z.enum(['query', 'header']).default('query'),
 

@@ -146,9 +146,21 @@ then carries no key at all:
 const api = new GlassnodeAPI({ apiKey: process.env.GLASSNODE_API_KEY, apiKeyLocation: 'header' });
 ```
 
-With `'header'`, a custom `fetch` is called as `fetch(url, { headers: { 'X-Api-Key': key } })`
-(plus `signal` when a `timeout` or a per-call `signal` is set) and must forward `init.headers` — the
-fetch returned by `createX402Fetch()` does. No header is sent when there is no `apiKey` (e.g. `x402` mode).
+With `'header'`, a custom `fetch` is called as
+`fetch(url, { headers: { 'X-Api-Key': key }, redirect: 'manual' })` (plus `signal` when a `timeout`
+or a per-call `signal` is set) and must forward `init.headers` — the fetch returned by
+`createX402Fetch()` does. No header is sent when there is no `apiKey` (e.g. `x402` mode).
+
+**Redirects are not followed with `'header'`.** Node's `fetch` (undici), with its default
+`redirect: 'follow'`, resends custom request headers such as `X-Api-Key` to whatever origin a
+`3xx` `Location` names — including an `https` → `http` downgrade; only `Authorization`-style headers
+are dropped on a cross-origin hop. So the client sends `redirect: 'manual'` along with the header,
+and a `3xx` answer surfaces as a `GlassnodeApiError` with that status (not retried; its message
+never contains the key or the `Location`). Point `apiUrl` at the final URL instead of relying on a
+redirect. A custom `fetch` should honour `init.redirect` (or not follow redirects at all). With the
+default `'query'`, redirects are still followed and the call shape is unchanged (`fetch(url)`):
+fetch adds nothing to the redirected request, which goes to the URL the server's `Location` names —
+only a server that already received the key can put it there.
 
 `'header'` does **not** work in browsers: a custom header triggers a CORS preflight, and the
 Glassnode API's `Access-Control-Allow-Headers` does not list `X-Api-Key`, so the browser blocks the
@@ -329,7 +341,7 @@ matching needed.
 | Class                      | Thrown when                                                                                                                                                                                                                                         | Useful properties                                                                                                                                                              |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `GlassnodeError`           | Base class of all the errors below — catch this to handle any library failure                                                                                                                                                                       | `message`, `cause`                                                                                                                                                             |
-| `GlassnodeApiError`        | The API answered with a non-2xx HTTP status (e.g. `401`, `404`, `429`, `5xx`; with x402, only before a payment was sent, or `402` after it)                                                                                                         | `status`, `statusText`, `detail` (server message), `isRetryable` (429 / 5xx)                                                                                                   |
+| `GlassnodeApiError`        | The API answered with a non-2xx HTTP status (e.g. `401`, `404`, `429`, `5xx`, or a `3xx` not followed; with x402, only before a payment was sent, or `402` after it)                                                                                | `status`, `statusText`, `detail` (server message), `isRetryable` (429 / 5xx)                                                                                                   |
 | `GlassnodeNetworkError`    | No HTTP response: connection/DNS failure (in a browser also a CORS block), or the per-attempt `timeout` firing. Retried when `maxRetries` > 0                                                                                                       | `timedOut` (`true` when `timeout` fired), `cause` (the original fetch error)                                                                                                   |
 | `GlassnodeAbortError`      | The call was cancelled through the per-call `signal` (already aborted, or aborted mid-request or during a retry wait). Never retried                                                                                                                | `cause` (the signal's `reason`, e.g. a `DOMException` named `AbortError`, or `TimeoutError` for `AbortSignal.timeout()`)                                                       |
 | `GlassnodeValidationError` | A `2xx` response was unusable: the body was not valid JSON, or did not match the expected schema (or `callMetric`'s `schema`). Never retried                                                                                                        | `endpoint` (API path, e.g. `/v1/metadata/assets`), `cause` (`ZodError` / `SyntaxError`)                                                                                        |
@@ -607,6 +619,12 @@ enforces the ceiling).
 - The **unpaid** first request fails in transit (connection error, `timeout`) or gets a `429`/`5xx`,
   before any payment is signed → `GlassnodeNetworkError` / `GlassnodeApiError`, retried as usual.
   Nothing was paid.
+- **Redirects are never followed.** The fetch from `createX402Fetch()` sends every request with
+  `redirect: 'manual'` (a `redirect: 'error'` you pass is kept; `'follow'` is overridden), so the
+  signed `PAYMENT-SIGNATURE` / `X-PAYMENT` header is never resent to the origin a `3xx` names, and a
+  redirect target never gets to price the request. A `3xx` to the **unpaid** request →
+  `GlassnodeApiError` with that status, nothing signed; a `3xx` to the **paid** request →
+  `GlassnodePaymentError` with `status` and `paymentMayHaveSettled: true`, never retried (see above).
 - The server answers `402` even after payment (e.g. insufficient USDC balance, settlement refused)
   → `GlassnodeApiError` with `status` 402 (not retried). In x402 a `402` is the server's explicit
   "payment not accepted" answer, so it stays an API error.

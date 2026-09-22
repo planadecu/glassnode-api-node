@@ -315,7 +315,7 @@ describe('repeated params (array values)', () => {
       { apiKeyLocation: 'header' }
     );
     expect(url).toBe(`${BULK}?a=BTC&a=ETH&s=1609459200&f=json`);
-    expect(init).toEqual({ headers: { 'X-Api-Key': API_KEY } });
+    expect(init).toEqual({ headers: { 'X-Api-Key': API_KEY }, redirect: 'manual' });
   });
 
   it('sends a one-element array as a single param (same URL as the scalar)', async () => {
