@@ -124,10 +124,9 @@ export const AssetMetadataSchema = z.object({
   semantic_tags: z.array(z.string()).optional(),
 
   /**
-   * The network a token's data is served for by default (e.g. `"eth"`, `"sol"`), relevant when
-   * it is deployed on several blockchains. An empty string `""` when there is none: native assets
-   * (`asset_type` `"BLOCKCHAIN"`, e.g. BTC and ETH) and some tokens. Optional: `undefined` when
-   * the API omits the field.
+   * The network a token's data is served for by default, e.g. `"eth"`, `"sol"` or `"ton"`. An
+   * empty string `""` for native assets (`asset_type` `"BLOCKCHAIN"`, e.g. BTC and ETH) and some
+   * tokens. Optional: `undefined` when the API omits the field.
    */
   default_network: z.string().optional(),
 });

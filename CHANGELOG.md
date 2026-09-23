@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.28.1
+
+- Docs: the 0.26.0 changelog entry now notes its compile-time change for code that reads the
+  `fetch` option: `GlassnodeConfig['fetch']` takes a string, so calling it with a `URL` or
+  `Request` no longer type-checks.
+- Docs: the `default_network` comment on asset metadata no longer ties the field to tokens deployed
+  on several blockchains, which the recorded data does not bear out. It now describes the observed
+  values (`"eth"`, `"sol"`, `"ton"`, or `""` for native assets and some tokens). No code change.
+
 ## 0.28.0
 
 - Added: asset metadata entries (`AssetMetadataSchema` / `AssetMetadata`) now keep four fields the
@@ -106,6 +115,11 @@
   `Response` is still rejected. No runtime change: validation and function identity are unchanged.
 - Deprecated: `FetchFn`. It still means `typeof fetch` (and a `FetchFn` value is still accepted as
   the option), but it is no longer the option's type; use `GlassnodeFetch`.
+- **Compile-time change when reading the option (noted retroactively in 0.28.1):** passing a fetch
+  is unaffected, but `GlassnodeConfig['fetch']` (or a config's `.fetch`) is now a function taking a
+  string, so calling it with a `URL` or `Request` no longer type-checks
+  (`Argument of type 'URL' is not assignable to parameter of type 'string'`). Fix: call it with a
+  string URL (e.g. `url.toString()`), or type your own variable as `typeof fetch`.
 
 ## 0.25.1
 
