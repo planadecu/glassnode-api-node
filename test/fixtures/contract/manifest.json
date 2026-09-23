@@ -1,0 +1,201 @@
+{
+  "description": "Real Glassnode API responses recorded by scripts/record-fixtures.mjs for contract tests. Response bodies are stored as returned (pretty-printed), except where `trimmed` is set.",
+  "capturedAt": "2026-09-23T20:02:24.143Z",
+  "clientVersion": "0.27.0",
+  "baseUrl": "https://api.glassnode.com",
+  "sizePolicy": "a fixture over 2097152 bytes is trimmed to a representative subset (recorded in its `trimmed` field); a response that cannot be trimmed below that aborts the run",
+  "fixtures": [
+    {
+      "name": "asset-metadata",
+      "file": "asset-metadata.json",
+      "endpoint": "/v1/metadata/assets",
+      "params": [],
+      "status": 200,
+      "capturedAt": "2026-09-23T20:02:24.143Z",
+      "clientVersion": "0.27.0",
+      "bytes": 1547521
+    },
+    {
+      "name": "metric-list",
+      "file": "metric-list.json",
+      "endpoint": "/v1/metadata/metrics",
+      "params": [],
+      "status": 200,
+      "capturedAt": "2026-09-23T20:02:24.143Z",
+      "clientVersion": "0.27.0",
+      "bytes": 74931
+    },
+    {
+      "name": "metric-metadata-price-usd-close",
+      "file": "metric-metadata-price-usd-close.json",
+      "endpoint": "/v1/metadata/metric",
+      "params": [
+        {
+          "name": "path",
+          "value": "/market/price_usd_close"
+        }
+      ],
+      "status": 200,
+      "capturedAt": "2026-09-23T20:02:24.143Z",
+      "clientVersion": "0.27.0",
+      "bytes": 26146
+    },
+    {
+      "name": "metric-metadata-balance-exchanges-btc",
+      "file": "metric-metadata-balance-exchanges-btc.json",
+      "endpoint": "/v1/metadata/metric",
+      "params": [
+        {
+          "name": "path",
+          "value": "/distribution/balance_exchanges"
+        },
+        {
+          "name": "a",
+          "value": "BTC"
+        }
+      ],
+      "status": 200,
+      "capturedAt": "2026-09-23T20:02:24.143Z",
+      "clientVersion": "0.27.0",
+      "bytes": 2464
+    },
+    {
+      "name": "metric-metadata-us-spot-etf-balances-all",
+      "file": "metric-metadata-us-spot-etf-balances-all.json",
+      "endpoint": "/v1/metadata/metric",
+      "params": [
+        {
+          "name": "path",
+          "value": "/institutions/us_spot_etf_balances_all"
+        }
+      ],
+      "status": 200,
+      "capturedAt": "2026-09-23T20:02:24.143Z",
+      "clientVersion": "0.27.0",
+      "bytes": 2529
+    },
+    {
+      "name": "metric-stats-us-spot-etf-balances-all",
+      "file": "metric-stats-us-spot-etf-balances-all.json",
+      "endpoint": "/v1/metadata/metric/stats",
+      "params": [
+        {
+          "name": "path",
+          "value": "/institutions/us_spot_etf_balances_all"
+        }
+      ],
+      "status": 200,
+      "capturedAt": "2026-09-23T20:02:24.143Z",
+      "clientVersion": "0.27.0",
+      "bytes": 223
+    },
+    {
+      "name": "metric-stats-active-count-btc",
+      "file": "metric-stats-active-count-btc.json",
+      "endpoint": "/v1/metadata/metric/stats",
+      "params": [
+        {
+          "name": "path",
+          "value": "/addresses/active_count"
+        },
+        {
+          "name": "a",
+          "value": "BTC"
+        }
+      ],
+      "status": 200,
+      "capturedAt": "2026-09-23T20:02:24.143Z",
+      "clientVersion": "0.27.0",
+      "bytes": 571
+    },
+    {
+      "name": "timeseries-price-usd-close-btc",
+      "file": "timeseries-price-usd-close-btc.json",
+      "endpoint": "/v1/metrics/market/price_usd_close",
+      "params": [
+        {
+          "name": "a",
+          "value": "BTC"
+        },
+        {
+          "name": "i",
+          "value": "24h"
+        },
+        {
+          "name": "s",
+          "value": "1735689600"
+        },
+        {
+          "name": "u",
+          "value": "1735862400"
+        }
+      ],
+      "status": 200,
+      "capturedAt": "2026-09-23T20:02:24.143Z",
+      "clientVersion": "0.27.0",
+      "bytes": 116
+    },
+    {
+      "name": "timeseries-price-usd-ohlc-btc",
+      "file": "timeseries-price-usd-ohlc-btc.json",
+      "endpoint": "/v1/metrics/market/price_usd_ohlc",
+      "params": [
+        {
+          "name": "a",
+          "value": "BTC"
+        },
+        {
+          "name": "i",
+          "value": "24h"
+        },
+        {
+          "name": "s",
+          "value": "1735689600"
+        },
+        {
+          "name": "u",
+          "value": "1735862400"
+        }
+      ],
+      "status": 200,
+      "capturedAt": "2026-09-23T20:02:24.143Z",
+      "clientVersion": "0.27.0",
+      "bytes": 332
+    },
+    {
+      "name": "bulk-marketcap-usd",
+      "file": "bulk-marketcap-usd.json",
+      "endpoint": "/v1/metrics/market/marketcap_usd/bulk",
+      "params": [
+        {
+          "name": "a",
+          "value": "BTC"
+        },
+        {
+          "name": "a",
+          "value": "ETH"
+        },
+        {
+          "name": "a",
+          "value": "SOL"
+        },
+        {
+          "name": "i",
+          "value": "24h"
+        },
+        {
+          "name": "s",
+          "value": "1735689600"
+        },
+        {
+          "name": "u",
+          "value": "1735862400"
+        }
+      ],
+      "status": 200,
+      "capturedAt": "2026-09-23T20:02:24.143Z",
+      "clientVersion": "0.27.0",
+      "bytes": 652
+    }
+  ]
+}

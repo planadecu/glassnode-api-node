@@ -1,0 +1,98 @@
+{
+  "path": "/distribution/balance_exchanges",
+  "tier": 2,
+  "parameters": {
+    "a": [
+      "BTC"
+    ],
+    "c": [
+      "native",
+      "usd"
+    ],
+    "e": [
+      "aggregated",
+      "binance",
+      "bitcoin.de",
+      "bitfinex",
+      "bitflyer",
+      "bitget",
+      "bithumb",
+      "bitmex",
+      "bitstamp",
+      "bittrex",
+      "bybit",
+      "coinbase",
+      "coincheck",
+      "coinex",
+      "coinspot",
+      "crypto.com",
+      "deribit",
+      "firi",
+      "ftx",
+      "gate.io",
+      "gemini",
+      "hashkey",
+      "hitbtc",
+      "huobi",
+      "indodax",
+      "korbit",
+      "kraken",
+      "kucoin",
+      "luno",
+      "mexc",
+      "okex",
+      "phemex",
+      "poloniex",
+      "robinhood",
+      "swissborg",
+      "upbit",
+      "uphold"
+    ],
+    "f": [
+      "csv",
+      "json"
+    ],
+    "i": [
+      "10m",
+      "1h",
+      "24h"
+    ]
+  },
+  "parameters_defaults": {
+    "e": [
+      "aggregated"
+    ]
+  },
+  "queried": {
+    "a": "BTC",
+    "path": "/distribution/balance_exchanges"
+  },
+  "refs": {
+    "docs": "https://docs.glassnode.com/basic-api/endpoints/distribution#get-v1-metrics-distribution-balance_exchanges",
+    "studio": "https://studio.glassnode.com/charts/distribution.BalanceExchanges",
+    "metric_variant": {
+      "bulk": "/distribution/balance_exchanges/bulk",
+      "pit": "/distribution/balance_exchanges_pit"
+    }
+  },
+  "bulk_supported": true,
+  "timerange": {
+    "min": 1313571600,
+    "max": 1790191200
+  },
+  "modified": 1790193701,
+  "descriptors": {
+    "name": "Balance on Exchanges (Total)",
+    "short_name": "Exchange Balance (Total)",
+    "group": "Exchange Balances",
+    "tags": [
+      "on-chain",
+      "exchanges",
+      "entities"
+    ],
+    "description": {
+      "default": "**Definition.** The total amount of coins%CURRENCY% held on exchange addresses.\n\n**Technical.** Exchange metrics are based on Glassnode's continually updated set of labeled exchange addresses, together with statistical and data-science methods that are refined over time. The series is therefore mutable: its established history is stable, but recent data points may revise as labels update. For methodology and limitations, see our [article on exchange metrics](https://insights.glassnode.com/exchange-metrics/) and [Exchange Data Transparency Notice](https://docs.glassnode.com/further-information/exchange-data-transparency-notice).\n"
+    },
+    "data_sharing_group": "onchain"
+  }
+}

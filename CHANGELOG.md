@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.27.1
+
+- Tests: contract tests (`test/contract.spec.ts`) against 10 real API responses recorded by
+  `scripts/record-fixtures.mjs` and committed under `test/fixtures/contract/`: asset metadata, the
+  metric list, metric metadata and stats (with and without `a`), a `{ t, v }` and a `{ t, o }`
+  series, and a bulk response. Each is served through a mocked `fetch` to its client method. The
+  tests check that it validates, returns the recorded values (timestamps as documented), and that
+  the client builds the recorded request URL. They also pin the fields the schemas do not model
+  yet: `categories`, `logo_url`, `semantic_tags` and `default_network` on assets, and
+  `parameters_defaults` on metric metadata. All 10 responses pass the current schemas. No change to
+  the published package.
+
 ## 0.27.0
 
 ### Security

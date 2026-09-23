@@ -1,0 +1,70 @@
+{
+  "path": "/institutions/us_spot_etf_balances_all",
+  "tier": 1,
+  "parameters": {
+    "a": [
+      "AVAX",
+      "BNB",
+      "BTC",
+      "DOGE",
+      "DOT",
+      "ETH",
+      "HBAR",
+      "HYPE",
+      "LINK",
+      "LTC",
+      "SOL",
+      "SUI",
+      "TRX",
+      "XAG",
+      "XAU",
+      "XRP",
+      "ZEC"
+    ],
+    "c": [
+      "native",
+      "usd"
+    ],
+    "f": [
+      "csv",
+      "json"
+    ],
+    "i": [
+      "24h",
+      "1w",
+      "1month"
+    ]
+  },
+  "queried": {
+    "path": "/institutions/us_spot_etf_balances_all"
+  },
+  "refs": {
+    "docs": "https://docs.glassnode.com/basic-api/endpoints/institutions#get-v1-metrics-institutions-us_spot_etf_balances_all",
+    "studio": "https://studio.glassnode.com/charts/institutions.UsSpotEtfBalancesAll",
+    "metric_variant": {
+      "bulk": "/institutions/us_spot_etf_balances_all/bulk",
+      "pit": "/institutions/us_spot_etf_balances_all_pit"
+    }
+  },
+  "bulk_supported": true,
+  "timerange": {
+    "min": 1705363200,
+    "max": 1790035200
+  },
+  "modified": 1790190276,
+  "descriptors": {
+    "name": "US Spot ETF Balances",
+    "short_name": "US Spot ETF Balances",
+    "group": "ETFs",
+    "tags": [
+      "etf",
+      "institutions",
+      "entities",
+      "companies"
+    ],
+    "description": {
+      "default": "**Definition.** US Spot ETF Balances reports the most recent balances of the leading Crypto ETFs traded in the U.S., typically reflecting holdings at the end of the previous trading day (T+1). Amongst others, the following Bitcoin ETFs are covered: IBIT by BlackRock, GBTC by Grayscale, BTC by Grayscale (Mini Trust), FBTC by Fidelity, ARKB by Ark/21 Shares, BITB by Bitwise, HODL by VanEck, BRRR by Valkyrie, BTCO by Invesco/Galaxy, EZBC by Franklin Templeton, BTCW by WisdomTree. For Ethereum the following ETFs are supported: ETHA by BlackRock, ETHE by Grayscale, ETH by Grayscale (Mini Trust), FETH by Fidelity, CETH by 21 Shares, ETHW by Bitwise, ETHV by VanEck, QETH by Invesco/Galaxy, EZET by Franklin Templeton.\n\n**Technical.** Data is taken directly from the ETF issuers. Hence, outside trading hours and in particular during the weekend, the metric may receive delayed updates only. The maximum available timestamp per ETF may differ, depending on the issuers' update frequency. 'Total' is only updated once data for all contributing ETFs is available.\n\n**Notes.** Source data is publicly available information obtained directly from the respective ETF issuers.\n"
+    },
+    "data_sharing_group": "market"
+  }
+}

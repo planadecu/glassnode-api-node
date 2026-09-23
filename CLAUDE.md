@@ -9,8 +9,13 @@ This document provides context for Claude when working with this project.
   - `/src/x402.ts` - separate subpath entry (`glassnode-api/x402`): `createX402Fetch` and helpers
   - `/src/types` - TypeScript type definitions (Zod schemas + inferred types)
 - `/test` - Test files (Vitest)
+  - `/test/contract.spec.ts` - contract tests: each real API response in `/test/fixtures/contract`
+    (recorded by `scripts/record-fixtures.mjs`, listed in its `manifest.json`) goes through the
+    client and its schemas. Never hand-edit the fixtures; re-record them. A schema failure there is
+    real API drift: fix the schema, never the fixture or the test
 - `/examples` - Example usage patterns (own `package.json`; type-checked via `tsconfig.examples.json`)
-- `/scripts` - `smoke-timeout.mjs`, the plain-Node runtime smoke run on Node 18 in CI
+- `/scripts` - `smoke-timeout.mjs`, the plain-Node runtime smoke run on Node 18 in CI;
+  `record-fixtures.mjs`, which records the contract fixtures (needs an API key; run only to refresh)
 - `/typecheck/x402-node16` - consumer type-check fixture (node16 resolution, `skipLibCheck: false`)
 - `/dist` - Compiled output (not checked into git)
 - `/api-docs` - Generated TypeDoc API reference (`pnpm run docs`; not checked into git, never

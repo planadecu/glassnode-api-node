@@ -751,6 +751,13 @@ GLASSNODE_API_KEY=... node scripts/record-fixtures.mjs
 
 Review the diff (`git diff test/fixtures/contract`) before committing the fixtures.
 
+`test/contract.spec.ts` (part of `pnpm test`) serves each recorded response through a mocked
+`fetch` to the client method that calls it, and checks that it passes the response schema, returns
+the recorded values, and that the client builds the recorded request. It also pins the fields the
+real responses carry that the schemas do not model (and so strip). After a re-recording, a new
+field fails that test until it is modelled or added to that list, and a new fixture fails until it
+has a case. The manifest and the files in the directory must match.
+
 ## License
 
 [MIT](./LICENSE)
