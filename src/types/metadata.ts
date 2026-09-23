@@ -90,7 +90,9 @@ export const AssetMetadataSchema = z.object({
   name: z.string(),
 
   /**
-   * Type of asset (e.g., "coin", "token")
+   * Type of asset: `"BLOCKCHAIN"` for a chain's native asset (e.g. BTC, ETH) or `"TOKEN"` for a
+   * token deployed on one or more blockchains (see `blockchains`). Typed as a plain string, not an
+   * enum, so a new asset type the API adds does not fail validation.
    */
   asset_type: z.string(),
 
@@ -103,6 +105,31 @@ export const AssetMetadataSchema = z.object({
    * Blockchain information for this asset
    */
   blockchains: z.array(AssetBlockchainSchema),
+
+  /**
+   * Data categories available for this asset (e.g. `["exchanges", "on-chain", "spot"]`).
+   * Open-ended strings, not an enum. Optional: `undefined` when the API omits the field.
+   */
+  categories: z.array(z.string()).optional(),
+
+  /**
+   * URL of the asset's logo image. Optional: `undefined` when the API omits the field.
+   */
+  logo_url: z.string().optional(),
+
+  /**
+   * Descriptive tags for the asset (e.g. `["layer1Token", "proofOfWork"]`); may be empty.
+   * Open-ended strings, not an enum. Optional: `undefined` when the API omits the field.
+   */
+  semantic_tags: z.array(z.string()).optional(),
+
+  /**
+   * The network a token's data is served for by default (e.g. `"eth"`, `"sol"`), relevant when
+   * it is deployed on several blockchains. An empty string `""` when there is none: native assets
+   * (`asset_type` `"BLOCKCHAIN"`, e.g. BTC and ETH) and some tokens. Optional: `undefined` when
+   * the API omits the field.
+   */
+  default_network: z.string().optional(),
 });
 
 /**
@@ -254,6 +281,13 @@ export const MetricMetadataSchema = z.object({
    * List of all allowed parameters and their values for the metric
    */
   parameters: z.record(z.string(), z.array(z.string())),
+
+  /**
+   * Default values of the parameters that have one, keyed by parameter name (e.g.
+   * `{ e: ['aggregated'] }`: without `e`, the metric is served for `aggregated`). Only sent for
+   * metrics with a defaulted parameter, so `undefined` for most metrics.
+   */
+  parameters_defaults: z.record(z.string(), z.array(z.string())).optional(),
 
   /**
    * Human-readable descriptors (name, tags, description)

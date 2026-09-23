@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.28.0
+
+- Added: asset metadata entries (`AssetMetadataSchema` / `AssetMetadata`) now keep four fields the
+  API returns that the schema used to strip: `categories` (`string[]`, e.g.
+  `["exchanges", "on-chain", "spot"]`), `logo_url` (`string`), `semantic_tags` (`string[]`, may be
+  empty) and `default_network` (`string`, e.g. `"eth"`; `""` for native assets such as BTC).
+- Added: metric metadata (`MetricMetadataSchema` / `MetricMetadata`) now keeps
+  `parameters_defaults`, the default value of each defaulted parameter as a record of string arrays
+  (e.g. `{ e: ['aggregated'] }`). The API only sends it for some metrics.
+- All five fields are optional, following the lenient-response policy (see 0.12.0): a response
+  without them still validates and the field is `undefined`. A present field of the wrong type
+  (e.g. `categories: "spot"`) fails validation, like any other typed field.
+- Docs: the `asset_type` comment now gives the real values, `"BLOCKCHAIN"` and `"TOKEN"` (it said
+  `"coin"` / `"token"`). It stays a plain `string`, not an enum, so a new type does not fail
+  validation.
+- Tests: the contract tests assert the new fields on the recorded responses and no longer expect
+  any stripped fields; unit tests cover the fields absent, empty and mistyped. The spec and the
+  README list the literals a re-recording may require updating.
+
 ## 0.27.1
 
 - Tests: contract tests (`test/contract.spec.ts`) against 10 real API responses recorded by

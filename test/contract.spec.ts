@@ -9,11 +9,19 @@
  * - the request URL the client builds matches the recorded endpoint and query, plus the `f=json`
  *   the client adds to metric data calls and the (query-string) API key;
  * - the fields the schemas strip from the real response are exactly the known, unmodelled ones
- *   (see `unmodelled` below), so a re-recorded fixture that brings a new field fails here and the
- *   field gets a conscious decision: model it, or add it to the list.
+ *   (see `EXPECTED_STRIPPED` below; currently none), so a re-recorded fixture that brings a new
+ *   field fails here and the field gets a conscious decision: model it, or list it there.
  *
  * The manifest, the fixture files and the cases below must match one to one: a fixture without a
  * case, a case without a fixture, or a file not listed in the manifest fails the suite.
+ *
+ * Re-recording: most assertions compare the result with the recorded body, but some pin literal
+ * values that a legitimate re-recording can change, and then need updating by hand: the metric
+ * `tier` values, the interval list (`parameters.i`) and asset/exchange lists (`parameters.a`,
+ * `parameters.e`, and `parameters_defaults`) of the metric metadata cases, the stats resolution
+ * sets (`['24h']`, `['10m', '1h', '24h', '1w']`), BTC's asset metadata (`external_ids`,
+ * `asset_type`, `default_network`, `categories`), the metric paths expected in the metric list,
+ * and the bulk assets and their `network`.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -124,15 +132,6 @@ function strippedKeys(raw: unknown, parsed: unknown, at = ''): string[] {
 
 const unique = (paths: string[]) => [...new Set(paths)].sort();
 
-/**
- * Fields present in the real responses that no schema models, so they are stripped from results.
- * Pinned so a new field in a re-recorded fixture fails the matching test (see the file comment).
- */
-const unmodelled = {
-  assetMetadata: ['[].categories', '[].default_network', '[].logo_url', '[].semantic_tags'],
-  metricMetadata: ['parameters_defaults'],
-};
-
 /** Percentiles in increasing order: a stats entry must be monotone in them. */
 const PERCENTILES = ['p50', 'p90', 'p95', 'p99'] as const;
 
@@ -166,6 +165,8 @@ async function metricMetadataCase(
   expect(result.timerange!.min).toBeLessThan(result.timerange!.max);
   expect(result.bulk_supported).toBe(body.bulk_supported);
   expect(result.parameters).toEqual(body.parameters);
+  // Only sent for a metric with a defaulted parameter; `undefined` (not `{}`) otherwise.
+  expect(result.parameters_defaults).toEqual(body.parameters_defaults);
   expect(result.queried).toEqual(body.queried);
   expect(result.queried.path).toBe(metadataPath(entry));
   expect(result.refs).toEqual(body.refs);
@@ -212,10 +213,9 @@ const CASES: Record<string, Case> = {
     const body = (raw as { data: Record<string, unknown>[] }).data;
 
     expect(result).toHaveLength(entry.trimmed?.keptCount ?? body.length);
-    // Every entry is the recorded one minus the unmodelled fields: nothing converted or dropped.
-    const modelled = ['id', 'symbol', 'name', 'asset_type', 'external_ids', 'blockchains'];
+    // Every entry is the recorded one: nothing converted or dropped.
     result.forEach((asset, i) => {
-      expect(asset).toEqual(Object.fromEntries(modelled.map((key) => [key, body[i][key]])));
+      expect(asset).toEqual(body[i]);
     });
     expect(new Set(result.map((a) => a.id)).size).toBe(result.length);
 
@@ -226,7 +226,24 @@ const CASES: Record<string, Case> = {
       asset_type: 'BLOCKCHAIN',
       external_ids: { ccdata: '1', coinmarketcap: '1', coingecko: 'bitcoin' },
       blockchains: [],
+      default_network: '',
     });
+    expect(btc!.categories).toEqual(expect.arrayContaining(['exchanges', 'on-chain', 'spot']));
+    expect(btc!.logo_url).toMatch(/^https:\/\//);
+    // The typed fields, on every entry of this recording (all optional in the schema).
+    for (const asset of result) {
+      for (const list of [asset.categories, asset.semantic_tags]) {
+        expect(Array.isArray(list)).toBe(true);
+        for (const item of list!) expect(typeof item).toBe('string');
+      }
+      expect(typeof asset.logo_url).toBe('string');
+      expect(typeof asset.default_network).toBe('string');
+    }
+    expectTypeOf(btc!.categories).toEqualTypeOf<string[] | undefined>();
+    expectTypeOf(btc!.default_network).toEqualTypeOf<string | undefined>();
+    // `semantic_tags` may be empty; tokens carry a non-empty `default_network` (e.g. "eth").
+    expect(result.some((a) => a.semantic_tags!.length === 0)).toBe(true);
+    expect(result.some((a) => a.asset_type === 'TOKEN' && a.default_network === 'eth')).toBe(true);
     // Tokens carry their contract deployments; decimals are non-negative integers.
     const chains = result.flatMap((a) => a.blockchains);
     expect(chains.length).toBeGreaterThan(0);
@@ -265,6 +282,7 @@ const CASES: Record<string, Case> = {
     expect(result.parameters.a).toEqual(expect.arrayContaining(['BTC', 'ETH', 'SOL']));
     expect(result.parameters.a.length).toBeGreaterThan(100);
     expect(result.queried).toEqual({ path: '/market/price_usd_close' });
+    expect(result.parameters_defaults).toBeUndefined();
     return result;
   },
 
@@ -274,6 +292,8 @@ const CASES: Record<string, Case> = {
     expect(result.tier).toBe(2);
     expect(result.parameters.a).toEqual(['BTC']);
     expect(result.parameters.e).toEqual(expect.arrayContaining(['aggregated', 'binance']));
+    expect(result.parameters_defaults).toEqual({ e: ['aggregated'] });
+    expectTypeOf(result.parameters_defaults).toEqualTypeOf<Record<string, string[]> | undefined>();
     expect(result.queried).toEqual({ a: 'BTC', path: '/distribution/balance_exchanges' });
     return result;
   },
@@ -349,12 +369,13 @@ const CASES: Record<string, Case> = {
   },
 };
 
-/** Expected unmodelled (stripped) field paths per fixture; every other fixture strips none. */
-const EXPECTED_STRIPPED: Record<string, string[]> = {
-  'asset-metadata': unmodelled.assetMetadata.map((p) => `data${p}`),
-  // Only sent for a metric with a defaulted parameter (here `e`: `{ e: ['aggregated'] }`).
-  'metric-metadata-balance-exchanges-btc': unmodelled.metricMetadata,
-};
+/**
+ * Fields present in the real responses that no schema models, so they are stripped from results:
+ * the expected stripped field paths per fixture (e.g. `'asset-metadata': ['data[].some_field']`);
+ * a fixture not listed strips none. Currently every recorded field is modelled. Pinned so a new
+ * field in a re-recorded fixture fails the matching test (see the file comment).
+ */
+const EXPECTED_STRIPPED: Record<string, string[]> = {};
 
 describe('contract fixtures', () => {
   describe('manifest', () => {

@@ -327,6 +327,50 @@ describe('GlassnodeAPI', () => {
       expect(result[0].external_ids['defillama']).toBe('bitcoin-dl');
     });
 
+    it('leaves the optional descriptive fields undefined when the API omits them', async () => {
+      const fetchFn = createMockFetch({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ data: mockAssetMetadataResponse }),
+      });
+
+      const [asset] = await createApi(fetchFn).getAssetMetadata();
+
+      expect(asset).not.toHaveProperty('categories');
+      expect(asset.categories).toBeUndefined();
+      expect(asset.logo_url).toBeUndefined();
+      expect(asset.semantic_tags).toBeUndefined();
+      expect(asset.default_network).toBeUndefined();
+    });
+
+    it('keeps the descriptive fields, including empty values, when present', async () => {
+      const response = {
+        data: [
+          {
+            ...mockAssetMetadataResponse[0],
+            categories: ['on-chain', 'spot'],
+            logo_url: 'https://cdn.example.com/btc.webp',
+            semantic_tags: [],
+            default_network: '',
+          },
+        ],
+      };
+      const fetchFn = createMockFetch({ ok: true, json: vi.fn().mockResolvedValue(response) });
+
+      const [asset] = await createApi(fetchFn).getAssetMetadata();
+
+      expect(asset.categories).toEqual(['on-chain', 'spot']);
+      expect(asset.logo_url).toBe('https://cdn.example.com/btc.webp');
+      expect(asset.semantic_tags).toEqual([]);
+      expect(asset.default_network).toBe('');
+    });
+
+    it('rejects a descriptive field of the wrong type', async () => {
+      const response = { data: [{ ...mockAssetMetadataResponse[0], categories: 'spot' }] };
+      const fetchFn = createMockFetch({ ok: true, json: vi.fn().mockResolvedValue(response) });
+
+      await expect(createApi(fetchFn).getAssetMetadata()).rejects.toThrow();
+    });
+
     it('still rejects a non-string external id', async () => {
       const response = {
         data: [
@@ -377,6 +421,50 @@ describe('GlassnodeAPI', () => {
       expect(result.tier).toBe(2);
       expect(result.modified).toBeInstanceOf(Date);
       expect(result.modified!.getTime()).toBe(mockRawMetricMetadataResponse.modified! * 1000);
+    });
+
+    it('leaves parameters_defaults undefined when the API omits it', async () => {
+      const fetchFn = createMockFetch({
+        ok: true,
+        json: vi.fn().mockResolvedValue(mockRawMetricMetadataResponse),
+      });
+
+      const result = await createApi(fetchFn).getMetricMetadata('/distribution/balance_exchanges');
+
+      expect(result).not.toHaveProperty('parameters_defaults');
+      expect(result.parameters_defaults).toBeUndefined();
+    });
+
+    it('keeps parameters_defaults, including an empty record, when present', async () => {
+      for (const parametersDefaults of [{ e: ['aggregated'] }, {}]) {
+        const fetchFn = createMockFetch({
+          ok: true,
+          json: vi.fn().mockResolvedValue({
+            ...mockRawMetricMetadataResponse,
+            parameters_defaults: parametersDefaults,
+          }),
+        });
+
+        const result = await createApi(fetchFn).getMetricMetadata(
+          '/distribution/balance_exchanges'
+        );
+
+        expect(result.parameters_defaults).toEqual(parametersDefaults);
+      }
+    });
+
+    it('rejects parameters_defaults whose values are not string arrays', async () => {
+      const fetchFn = createMockFetch({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          ...mockRawMetricMetadataResponse,
+          parameters_defaults: { e: 'aggregated' },
+        }),
+      });
+
+      await expect(
+        createApi(fetchFn).getMetricMetadata('/distribution/balance_exchanges')
+      ).rejects.toThrow();
     });
 
     it('should handle optional params', async () => {

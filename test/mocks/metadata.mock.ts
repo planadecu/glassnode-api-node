@@ -16,7 +16,7 @@ export const mockAssetMetadataResponse: AssetMetadataResponse = [
     id: 'bitcoin',
     symbol: 'BTC',
     name: 'Bitcoin',
-    asset_type: 'coin',
+    asset_type: 'BLOCKCHAIN',
     external_ids: {
       coingecko: 'bitcoin',
     },
@@ -33,7 +33,7 @@ export const mockAssetMetadataResponse: AssetMetadataResponse = [
     id: 'ethereum',
     symbol: 'ETH',
     name: 'Ethereum',
-    asset_type: 'coin',
+    asset_type: 'BLOCKCHAIN',
     external_ids: {
       coingecko: 'ethereum',
     },

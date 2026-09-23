@@ -754,9 +754,16 @@ Review the diff (`git diff test/fixtures/contract`) before committing the fixtur
 `test/contract.spec.ts` (part of `pnpm test`) serves each recorded response through a mocked
 `fetch` to the client method that calls it, and checks that it passes the response schema, returns
 the recorded values, and that the client builds the recorded request. It also pins the fields the
-real responses carry that the schemas do not model (and so strip). After a re-recording, a new
-field fails that test until it is modelled or added to that list, and a new fixture fails until it
-has a case. The manifest and the files in the directory must match.
+real responses carry that the schemas do not model (and so strip) — currently none. After a
+re-recording, a new field fails that test until it is modelled or listed there, and a new fixture
+fails until it has a case. The manifest and the files in the directory must match.
+
+Most assertions compare results with the recorded body, but a few pin literal values from the
+current recording that a legitimate re-recording can change; update them in
+`test/contract.spec.ts` if they do: the metric `tier` values, the `parameters.a` / `parameters.e` /
+`parameters.i` lists and `parameters_defaults` of the metric metadata cases, the stats resolution
+sets, BTC's asset metadata (`external_ids`, `asset_type`, `default_network`, `categories`), the
+metric paths expected in the metric list, and the bulk assets and their `network`.
 
 ## License
 
