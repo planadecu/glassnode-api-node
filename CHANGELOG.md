@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.29.2
+
+- License: `LICENSE` is now the official Apache License 2.0 text, verbatim from
+  https://www.apache.org/licenses/LICENSE-2.0.txt. The previous file was a paraphrase (for example,
+  §4 was reworded and §9's indemnity clause was missing). The copyright lines sit in the
+  appendix's boilerplate notice, and nothing else differs from the official text.
+- License: the Glassnode entity is now named correctly as Glassnode AG, the Swiss company, in
+  `LICENSE`, `NOTICE`, `package.json` `contributors` and the 0.29.0 entry below. No code change.
+
 ## 0.29.1
 
 - Release: the publish workflow now releases the `version` in `package.json` as is. It no longer
@@ -20,10 +29,10 @@
 
 - License: relicensed from MIT to the Apache License 2.0 from this version on. Earlier published
   versions remain under the MIT License. `LICENSE` now holds the Apache-2.0 text with copyright
-  Jordi Planadecursach and Glassnode GmbH, and `package.json` `license` is `Apache-2.0`.
+  Jordi Planadecursach and Glassnode AG, and `package.json` `license` is `Apache-2.0`.
 - Added: a `NOTICE` file with the copyright and attribution (the project was originally created by
   Jordi Planadecursach). It ships in the npm package, and Apache-2.0 §4(d) requires redistributors
-  to keep it. Glassnode GmbH is listed under `contributors` in `package.json`.
+  to keep it. Glassnode AG is listed under `contributors` in `package.json`.
 - Moved: the repository is now
   [glassnode/glassnode-api-ts-client](https://github.com/glassnode/glassnode-api-ts-client)
   (formerly `planadecu/glassnode-api-node`), and the API reference is at
