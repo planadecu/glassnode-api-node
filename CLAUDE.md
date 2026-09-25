@@ -154,15 +154,34 @@ Follow [semver](https://semver.org/):
   Rollup bundle. Source maps are generated `hidden` and not published.
 - Config: `tsconfig.json` (CJS), `tsconfig.esm.json` (ESM), `tsconfig.browser.json` (browser),
   `tsconfig.test.json` (tests/IDE), `tsconfig.examples.json` (type-checks `examples/` against
-  `src/` using root deps), `typecheck/x402-node16/tsconfig.json` (consumer fixture). The package
-  sets `"type": "commonjs"`.
+  `src/` using root deps), `examples/tsconfig.json` (ts-node config for running the examples;
+  extends `tsconfig.examples.json`), `typecheck/x402-node16/tsconfig.json` (consumer fixture). The
+  package sets `"type": "commonjs"`.
+
+### Why `src/` imports use `.js` specifiers
+
+Relative imports in `src/` are written `./foo.js` even though the file is `foo.ts`. Keep them so:
+
+- `dist/esm/` is unbundled `tsc` output, and Node's ESM loader requires full file extensions, so
+  the emitted specifiers must end in `.js`. `tsc` never rewrites a `.js` specifier, so it has to be
+  written that way in the source.
+- TypeScript maps a `.js` specifier to the matching `.ts` file when type-checking, so the editor,
+  `tsc` and Vitest all resolve it.
+- Extensionless specifiers (`./foo`) only work behind a bundler (or CommonJS `require`); they break
+  `dist/esm/` under Node.
+- `.ts` specifiers with `rewriteRelativeImportExtensions` were tried and rejected: `tsc` rewrites
+  them in the emitted `.js` but leaves `.ts` specifiers in the emitted `.d.ts`.
+- Tools that run `src/` directly must map `.js` back to `.ts` themselves. ts-node's CommonJS
+  `require` does not by default, which is why `examples/tsconfig.json` sets ts-node's
+  `experimentalResolver`, and CI imports `../src` through ts-node from `examples/` to guard it.
 
 ## CI
 
 `.github/workflows/ci.yml` runs on pull requests to `main`:
 
 - `test` (Node 24): lint, `test:coverage` (thresholds in `vitest.config.ts`), `tsc` on
-  `tsconfig.test.json` and `tsconfig.examples.json`, `build`, `build:browser`, the
+  `tsconfig.test.json` and `tsconfig.examples.json`, an offline ts-node import of `../src` from
+  `examples/` (module-resolution guard, no example runs), `build`, `build:browser`, the
   `typecheck/x402-node16` consumer check, `docs` (TypeDoc), `publint` and
   `@arethetypeswrong/cli --pack .`.
 - `compat-node18` (Node 18): build, CJS `require` smoke, `scripts/smoke-timeout.mjs`.

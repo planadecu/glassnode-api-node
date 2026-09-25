@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.28.2
+
+- Fixed: the example scripts run again with `npx ts-node ex.<name>.ts` from `examples/`. They
+  failed with `Cannot find module './glassnode-api.js'` because `src/` imports its siblings with
+  `.js` specifiers, which ts-node's CommonJS `require` does not map to the `.ts` sources. A new
+  `examples/tsconfig.json` (extending `tsconfig.examples.json`) turns on ts-node's
+  `experimentalResolver`, which does. CI now imports `../src` through ts-node from `examples/`
+  (offline) to catch a regression. No change to the published package.
+
 ## 0.28.1
 
 - Docs: the 0.26.0 changelog entry now notes its compile-time change for code that reads the

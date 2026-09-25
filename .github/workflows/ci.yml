@@ -36,6 +36,17 @@ jobs:
       # (they are only run ad hoc via ts-node). Resolves deps from the root install — no extra
       # install of the examples/ sub-project.
       - run: pnpm exec tsc -p tsconfig.examples.json
+      # The type-check above can't catch runtime module resolution: src/ uses `.js` relative
+      # specifiers, which ts-node only maps to `.ts` via examples/tsconfig.json
+      # (experimentalResolver). Import both entries the way `npx ts-node ex.<name>.ts` does, with
+      # the ts-node version examples/package.json pins. Offline: no example code runs, no API call.
+      - working-directory: examples
+        run: >-
+          pnpm dlx ts-node@10.9.2 -e "import { GlassnodeAPI } from '../src';
+          import { createX402Fetch } from '../src/x402';
+          if (typeof GlassnodeAPI !== 'function' || typeof createX402Fetch !== 'function')
+          throw new Error('unexpected exports');
+          console.log('examples: ts-node resolves ../src')"
       - run: pnpm run build
       - run: pnpm run build:browser
       # Build the TypeDoc API reference (typedoc.json: treatWarningsAsErrors), so a broken {@link},

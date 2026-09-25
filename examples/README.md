@@ -126,6 +126,10 @@ npx ts-node ex.x402.active-addresses.ts
 - `ts-node` (dev dependency) - For running TypeScript files directly
 - `@x402/fetch`, `@x402/evm`, `viem` - For the x402 paid-API example (payment signing on Base)
 
+`examples/tsconfig.json` configures ts-node: it enables `experimentalResolver`, which maps the
+`.js` import specifiers in `../src` to their `.ts` sources. Run the examples from this directory so
+ts-node picks it up; otherwise they fail with `Cannot find module './glassnode-api.js'`.
+
 `zod` (used directly in `ex.metadata.validation.ts`) is not listed there — it's a dependency of the
 client itself and resolves from the root install.
 

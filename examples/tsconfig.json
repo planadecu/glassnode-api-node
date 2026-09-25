@@ -1,0 +1,12 @@
+{
+  // Picked up by ts-node when running an example from this directory (`npx ts-node ex.<name>.ts`).
+  // Without it, ts-node walks up to the root tsconfig.json, which is the CJS build config.
+  // Compiler options come from tsconfig.examples.json (the CI type-check of examples/).
+  "extends": "../tsconfig.examples.json",
+  "ts-node": {
+    // src/ imports its siblings with `.js` specifiers (see CLAUDE.md, Build Targets). TypeScript
+    // maps them to the `.ts` sources, but ts-node's plain CommonJS require does not, so without
+    // this every example fails with "Cannot find module './glassnode-api.js'".
+    "experimentalResolver": true
+  }
+}
