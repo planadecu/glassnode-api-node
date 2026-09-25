@@ -1,0 +1,118 @@
+# Contributing to glassnode-api
+
+Thanks for helping improve the TypeScript client for the Glassnode API. This guide walks you
+through opening a pull request (PR).
+
+**Every merge to `main` publishes a new version to npm automatically**
+(`.github/workflows/publish.yml`), so nothing lands on `main` except through a reviewed PR.
+
+## Prerequisites
+
+- **Node.js 24** for development (see `.nvmrc`; the test runner, Vitest, needs Node >= 22.12).
+  Consumers of the published package only need Node.js >= 18.
+- **pnpm** (the version is pinned in `package.json` `packageManager`; `corepack enable` picks it
+  up).
+
+## Opening a pull request, step by step
+
+### 1. Fork or branch
+
+Fork the repository (or, with write access, create a branch) and install dependencies:
+
+```bash
+git clone https://github.com/<you>/glassnode-api-ts-client.git
+cd glassnode-api-ts-client
+git checkout -b my-change
+pnpm install
+pnpm exec husky   # install the pre-commit hook
+```
+
+The repo's `.npmrc` disables install scripts, so `pnpm install` does not set up the Husky
+pre-commit hook on its own; `pnpm exec husky` does. The hook runs the tests, ESLint + Prettier on
+staged files and the build.
+
+### 2. Make the change
+
+Project layout:
+
+- `src/index.ts` - main entry (`glassnode-api`): the `GlassnodeAPI` client, errors and types
+- `src/x402.ts` - the `glassnode-api/x402` subpath entry (paid calls via x402)
+- `src/types/` - Zod schemas and the types inferred from them
+- `test/` - Vitest tests, including the contract tests in `test/contract.spec.ts`
+- `examples/` - runnable usage examples (their own `package.json`)
+- `scripts/` - the Node 18 smoke test and the contract fixture recorder
+- `typecheck/x402-node16/` - a consumer type-check fixture
+
+Add or update tests for what you change. The public API is what `src/index.ts` and `src/x402.ts`
+export; if you change it, update `README.md` to match and give every new export a doc comment.
+The shipped code must keep running on Node.js 18 and in browsers: no `node:` built-ins and no APIs
+newer than Node 18 in `src/`.
+
+### 3. Bump the version and add a changelog entry
+
+Every change bumps `version` in `package.json` and adds an entry at the top of `CHANGELOG.md`
+describing it. Follow [semver](https://semver.org/):
+
+- **Major**: breaking changes (removed or renamed exports, changed method signatures, a higher
+  minimum Node.js version).
+- **Minor**: new features, methods or config options that are backward compatible.
+- **Patch**: bug fixes, docs and internal refactors with no API change.
+
+The publish workflow adds its own patch bump on top when it releases, so the published version can
+be one patch higher than the one in your PR.
+
+### 4. Run the full local check list
+
+CI runs these on every PR; run them locally first:
+
+```bash
+pnpm run lint
+pnpm test
+pnpm exec tsc -p tsconfig.test.json --noEmit
+pnpm exec tsc -p tsconfig.examples.json
+pnpm run build
+pnpm run build:browser
+npx prettier --check .
+pnpm run docs
+pnpm dlx publint
+pnpm dlx @arethetypeswrong/cli --pack .
+```
+
+`pnpm run test:coverage` enforces the coverage thresholds in `vitest.config.ts`, and
+`pnpm run format` fixes formatting. `pnpm run docs` fails on any TypeDoc warning, such as a broken
+`{@link}`.
+
+### 5. Open the PR against `main`
+
+A good PR description says:
+
+- **What** changed.
+- **Why**: the problem it solves or the issue it closes.
+- **How it was verified**: the checks you ran and any manual testing.
+- **User-facing impact**: behaviour changes for consumers, and any breaking change called out
+  explicitly.
+
+### 6. CI, review and merge
+
+CI must pass, and a maintainer reviews the PR. Once it is approved, a maintainer merges it, and
+the merge publishes the new version to npm.
+
+## Contract fixtures
+
+`test/fixtures/contract/` holds real API responses recorded by `scripts/record-fixtures.mjs`.
+Never hand-edit them; re-record them. That needs an API key, so it is only done to refresh the
+fixtures. See [Recording contract fixtures](./README.md#recording-contract-fixtures) in the README.
+
+## Security
+
+- Report vulnerabilities privately, through GitHub's private vulnerability reporting on this
+  repository (the **Security** tab → **Report a vulnerability**). Never open a public issue for
+  them.
+- Never commit API keys or other secrets, including in fixtures, examples, `.env` files or test
+  output.
+
+## License of contributions
+
+This project is licensed under the [Apache License 2.0](./LICENSE). Under its Section 5, any
+contribution you intentionally submit for inclusion is licensed under the same terms, unless you
+explicitly state otherwise.

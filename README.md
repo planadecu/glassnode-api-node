@@ -4,7 +4,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/glassnode-api.svg)](https://www.npmjs.com/package/glassnode-api)
 [![minzipped size](https://img.shields.io/bundlejs/size/glassnode-api)](https://bundlejs.com/?q=glassnode-api)
 [![types included](https://img.shields.io/npm/types/glassnode-api.svg)](https://www.npmjs.com/package/glassnode-api)
-[![CI](https://github.com/planadecu/glassnode-api-node/actions/workflows/ci.yml/badge.svg)](https://github.com/planadecu/glassnode-api-node/actions/workflows/ci.yml)
+[![CI](https://github.com/glassnode/glassnode-api-ts-client/actions/workflows/ci.yml/badge.svg)](https://github.com/glassnode/glassnode-api-ts-client/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/glassnode-api.svg)](./LICENSE)
 
 A fully-typed **TypeScript client for the [Glassnode API](https://docs.glassnode.com/)** — on-chain and
@@ -18,6 +18,8 @@ import { GlassnodeAPI } from 'glassnode-api';
 const api = new GlassnodeAPI({ apiKey: 'YOUR_API_KEY' });
 const btcPrice = await api.callMetric('/market/price_usd_close', { a: 'BTC' });
 ```
+
+Originally created by [Jordi Planadecursach](https://github.com/planadecu).
 
 ## Features
 
@@ -37,8 +39,8 @@ const btcPrice = await api.callMetric('/market/price_usd_close', { a: 'BTC' });
 
 ## Table of Contents
 
-- [API reference](https://planadecu.github.io/glassnode-api-node/) (every export, generated from the
-  source with TypeDoc)
+- [API reference](https://glassnode.github.io/glassnode-api-ts-client/) (every export, generated
+  from the source with TypeDoc)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
@@ -720,6 +722,9 @@ pnpm exec tsc -p tsconfig.examples.json       # type-check the examples
 Developing needs Node.js 24 (see `.nvmrc`; Vitest needs Node >= 22.12). The published package
 itself supports Node.js >= 18.
 
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to open a pull request: the full local check list,
+the version and changelog rules, and how releases work.
+
 ### Recording contract fixtures
 
 `scripts/record-fixtures.mjs` records real API responses into `test/fixtures/contract/` so the
@@ -767,4 +772,5 @@ metric paths expected in the metric list, and the bulk assets and their `network
 
 ## License
 
-[MIT](./LICENSE)
+[Apache License 2.0](./LICENSE); see [NOTICE](./NOTICE) for attribution. Versions before 0.29.0
+were published under the MIT License.

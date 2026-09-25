@@ -59,7 +59,7 @@ jobs:
       # Publish via npm Trusted Publishing (OIDC). npm >= 11.5.1 exchanges the GitHub
       # id-token (permissions.id-token: write) for a short-lived publish credential and
       # attaches provenance. Requires a Trusted Publisher configured for this package on
-      # npmjs.com (repo planadecu/glassnode-api-node + workflow file publish.yml).
+      # npmjs.com (repo glassnode/glassnode-api-ts-client + workflow file publish.yml).
       - run: npm install -g npm@latest
       - run: npm --version
       - run: npm publish

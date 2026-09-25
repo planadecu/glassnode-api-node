@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.29.0
+
+- License: relicensed from MIT to the Apache License 2.0 from this version on. Earlier published
+  versions remain under the MIT License. `LICENSE` now holds the Apache-2.0 text with copyright
+  Jordi Planadecursach and Glassnode GmbH, and `package.json` `license` is `Apache-2.0`.
+- Added: a `NOTICE` file with the copyright and attribution (the project was originally created by
+  Jordi Planadecursach). It ships in the npm package, and Apache-2.0 §4(d) requires redistributors
+  to keep it. Glassnode GmbH is listed under `contributors` in `package.json`.
+- Moved: the repository is now
+  [glassnode/glassnode-api-ts-client](https://github.com/glassnode/glassnode-api-ts-client)
+  (formerly `planadecu/glassnode-api-node`), and the API reference is at
+  https://glassnode.github.io/glassnode-api-ts-client/. The `repository`, `bugs` and `homepage`
+  links in `package.json`, the README, the TypeDoc GitHub link and the workflow comments point at
+  the new home. The npm package name, `glassnode-api`, is unchanged.
+- Added: `CONTRIBUTING.md`, a step-by-step guide to opening a pull request (local checks, version
+  and changelog rules, how releases work), plus security reporting and the licensing of
+  contributions. No code change.
+
 ## 0.28.4
 
 - Fixed: `npm ci` in `examples/` failed with "package.json and package-lock.json are not in sync":

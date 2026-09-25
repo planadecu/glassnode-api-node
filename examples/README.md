@@ -1,6 +1,6 @@
 # Glassnode API Examples
 
-This directory contains example scripts that demonstrate how to use the Glassnode API Node.js client.
+This directory contains example scripts that demonstrate how to use the Glassnode API TypeScript client (Node.js and browsers).
 
 ## Setup
 

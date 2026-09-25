@@ -20,6 +20,10 @@ This document provides context for Claude when working with this project.
 - `/dist` - Compiled output (not checked into git)
 - `/api-docs` - Generated TypeDoc API reference (`pnpm run docs`; not checked into git, never
   published to npm)
+- `CONTRIBUTING.md` - contributor guide (the PR flow, local check list, version/changelog rules,
+  security reporting); keep it in sync with this file
+- `LICENSE` (Apache-2.0) and `NOTICE` (attribution; listed in `package.json` `files` so it ships in
+  the npm tarball, as Apache-2.0 §4(d) requires)
 
 ## Development Workflow
 
@@ -187,7 +191,7 @@ Relative imports in `src/` are written `./foo.js` even though the file is `foo.t
 - `compat-node18` (Node 18): build, CJS `require` smoke, `scripts/smoke-timeout.mjs`.
 
 `.github/workflows/docs.yml` builds the API reference on every push to `main` and deploys it to
-GitHub Pages (https://planadecu.github.io/glassnode-api-node/). It requires the repo setting
+GitHub Pages (https://glassnode.github.io/glassnode-api-ts-client/). It requires the repo setting
 Settings → Pages → Source: **GitHub Actions**.
 
 The publish workflow only re-runs lint, `test:coverage`, the test type-check, `build` and
@@ -200,7 +204,7 @@ The publish workflow only re-runs lint, `test:coverage`, the test type-check, `b
 - It uses **npm Trusted Publishing (OIDC)** with provenance — there is **no `NPM_TOKEN`
   secret**. The workflow needs `permissions.id-token: write`, and a Trusted Publisher must
   be configured for the `glassnode-api` package on npmjs.com (repo
-  `planadecu/glassnode-api-node`, workflow `publish.yml`).
+  `glassnode/glassnode-api-ts-client`, workflow `publish.yml`).
 - npm CLI `>= 11.5.1` performs the OIDC exchange, so the workflow installs the latest npm
   and publishes with `npm publish` (not `pnpm publish`, which uses the setup-node
   placeholder token and 404s). The setup-node `.npmrc` is overwritten before publishing so

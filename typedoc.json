@@ -10,7 +10,7 @@
   "excludePrivate": true,
   "excludeInternal": true,
   "navigationLinks": {
-    "GitHub": "https://github.com/planadecu/glassnode-api-node",
+    "GitHub": "https://github.com/glassnode/glassnode-api-ts-client",
     "npm": "https://www.npmjs.com/package/glassnode-api"
   },
   "treatWarningsAsErrors": true,

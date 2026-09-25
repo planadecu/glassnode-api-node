@@ -1,6 +1,6 @@
 name: Docs
 # Build the TypeDoc API reference and deploy it to GitHub Pages
-# (https://planadecu.github.io/glassnode-api-node/). One-time repo setting:
+# (https://glassnode.github.io/glassnode-api-ts-client/). One-time repo setting:
 # Settings → Pages → Build and deployment → Source: GitHub Actions.
 on:
   push:
