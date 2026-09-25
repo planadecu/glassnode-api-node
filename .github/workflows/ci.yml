@@ -36,13 +36,18 @@ jobs:
       # (they are only run ad hoc via ts-node). Resolves deps from the root install — no extra
       # install of the examples/ sub-project.
       - run: pnpm exec tsc -p tsconfig.examples.json
+      # Install the examples/ sub-project from its own lockfile, as examples/README.md documents.
+      # `npm ci` fails if examples/package-lock.json is out of sync with examples/package.json, so
+      # the lockfile cannot go stale silently. Registry only; examples/.npmrc sets ignore-scripts.
+      - working-directory: examples
+        run: npm ci --no-audit --no-fund
       # The type-check above can't catch runtime module resolution: src/ uses `.js` relative
       # specifiers, which ts-node only maps to `.ts` via examples/tsconfig.json
       # (experimentalResolver). Import both entries the way `npx ts-node ex.<name>.ts` does, with
-      # the ts-node version examples/package.json pins. Offline: no example code runs, no API call.
+      # the ts-node the examples install locks. Offline: no example code runs, no API call.
       - working-directory: examples
         run: >-
-          pnpm dlx ts-node@10.9.2 -e "import { GlassnodeAPI } from '../src';
+          npx --no-install ts-node -e "import { GlassnodeAPI } from '../src';
           import { createX402Fetch } from '../src/x402';
           if (typeof GlassnodeAPI !== 'function' || typeof createX402Fetch !== 'function')
           throw new Error('unexpected exports');

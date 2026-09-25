@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.28.4
+
+- Fixed: `npm ci` in `examples/` failed with "package.json and package-lock.json are not in sync":
+  `examples/package-lock.json` predated the x402 dependencies in `examples/package.json`. The
+  lockfile is regenerated with the declared ranges unchanged. Added: `@x402/fetch`, `@x402/evm`
+  and `@x402/core` 2.26.0, `viem` 2.56.7 and their dependencies (`ox` 0.14.45, `abitype` 1.2.3,
+  `@noble/curves` 1.9.1, `@noble/hashes` 1.8.0, `@noble/ciphers` 1.3.0, `@scure/base` 1.2.6,
+  `@scure/bip32` 1.7.0, `@scure/bip39` 1.6.0, `@adraffy/ens-normalize` 1.11.1, `isows` 1.0.7,
+  `ws` 8.21.0, `eventemitter3` 5.0.1, `zod` 3.25.76). Every new version was published at least
+  7 days before resolution. Existing entries (`dotenv`, `ts-node` and its dependencies) keep their
+  versions and now also record their registry `resolved` URL and `integrity` hash, which they
+  lacked.
+- Added: `examples/.npmrc` with `ignore-scripts=true`. npm treats `examples/` as its own project
+  and does not read the root `.npmrc`, so installs there ran lifecycle scripts.
+- CI: the examples step now runs `npm ci` in `examples/`, so a stale lockfile fails the build, and
+  imports `../src` with the locally installed `ts-node` instead of `pnpm dlx`. No change to the
+  published package.
+
 ## 0.28.2
 
 - Fixed: the example scripts run again with `npx ts-node ex.<name>.ts` from `examples/`. They
