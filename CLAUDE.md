@@ -205,7 +205,7 @@ Its concurrency group cancels superseded runs only for pull requests; a run call
 
 - `.github/workflows/publish.yml` releases the `version` already in `package.json`. It never bumps
   the version, commits or pushes to `main`.
-- `main` is to be protected by a ruleset: no direct pushes, changes land through PRs with the
+- `main` is protected by a ruleset: no direct pushes, changes land through PRs with the
   required CI checks. Every change reaches `main` through a merged PR.
 - On every push to `main` (a merge):
   1. `verify` runs `ci.yml` (the full CI check list, `test` and `compat-node18`), read-only.

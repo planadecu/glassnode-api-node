@@ -11,9 +11,15 @@ Before running the examples:
    ```bash
    pnpm install   # in the repository root
    ```
-2. Install the examples' own dependencies in this directory:
+2. Install the examples' own dependencies in this directory with `npm ci`, which installs exactly
+   what `package-lock.json` pins, as CI does:
    ```bash
-   npm install
+   npm ci
+   ```
+   `examples/.npmrc` disables install scripts. To add or update a dependency, only accept versions
+   published at least 7 days ago (the repo's supply-chain rule), then commit the updated lockfile:
+   ```bash
+   npm install <package>@<range> --before="$(date -u -v-7d +%F)"   # macOS; GNU: date -u -d '7 days ago' +%F
    ```
 3. Copy `.env.example` to `.env` and fill in what the example needs — `GLASSNODE_API_KEY` (from
    [Glassnode](https://docs.glassnode.com/basic-api/api-key)) for the API-key examples, or the
