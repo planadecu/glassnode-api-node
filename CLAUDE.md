@@ -143,6 +143,9 @@ Follow [semver](https://semver.org/):
 1. Bump `version` in `package.json` (patch, minor, or major as appropriate)
 2. Add a corresponding entry to `CHANGELOG.md` describing the changes
 
+The `version` in `package.json` is exactly what gets published: CI never bumps it. A change
+merged without a bump publishes nothing (see [Publishing](#publishing)).
+
 ## Build Targets
 
 - **Node.js (CJS)**: `tsc` → `dist/` (CommonJS; the `require` entry). Relative imports in `src/`
@@ -181,7 +184,8 @@ Relative imports in `src/` are written `./foo.js` even though the file is `foo.t
 
 ## CI
 
-`.github/workflows/ci.yml` runs on pull requests to `main`:
+`.github/workflows/ci.yml` runs on pull requests to `main`, and `publish.yml` calls it
+(`workflow_call`) as its `verify` job, so a release runs the same checks:
 
 - `test` (Node 24): lint, `test:coverage` (thresholds in `vitest.config.ts`), `tsc` on
   `tsconfig.test.json` and `tsconfig.examples.json`, an offline ts-node import of `../src` from
@@ -194,21 +198,39 @@ Relative imports in `src/` are written `./foo.js` even though the file is `foo.t
 GitHub Pages (https://glassnode.github.io/glassnode-api-ts-client/). It requires the repo setting
 Settings → Pages → Source: **GitHub Actions**.
 
-The publish workflow only re-runs lint, `test:coverage`, the test type-check, `build` and
-`build:browser` before publishing (not the examples or packaging checks), so a direct commit to
-`main` must pass the full list locally first.
+Its concurrency group cancels superseded runs only for pull requests; a run called by
+`publish.yml` gets its own group and is never cancelled.
 
 ## Publishing
 
-- Publishing is automated by `.github/workflows/publish.yml` on every push to `main`.
+- `.github/workflows/publish.yml` releases the `version` already in `package.json`. It never bumps
+  the version, commits or pushes to `main`.
+- `main` is to be protected by a ruleset: no direct pushes, changes land through PRs with the
+  required CI checks. Every change reaches `main` through a merged PR.
+- On every push to `main` (a merge):
+  1. `verify` runs `ci.yml` (the full CI check list, `test` and `compat-node18`), read-only.
+  2. `release` (read-only) runs `scripts/release-state.sh`: `npm view glassnode-api@<version>`.
+     Only an E404 means "not published"; any other `npm view` failure (network, registry error)
+     fails the job, never publishes. If the version is already on npm (a merge without a bump, a
+     re-run), the run ends there with a notice in the job summary, and no approval is requested.
+  3. `publish` (`needs: [verify, release]`) runs in the `npm` **environment**, so it waits for a
+     required reviewer to approve. It re-checks npm, builds, runs `npm publish`, pushes the
+     `v<version>` tag on the published commit and creates a GitHub Release from the version's
+     `CHANGELOG.md` section. An existing tag on the same commit or an existing Release is fine; a
+     tag on another commit is left alone with a warning. If the version is on npm from this very
+     commit (npm records its `gitHead`), a re-run only (re)creates the missing tag and Release.
+- Only `publish` has write permissions: `id-token: write` (OIDC) and `contents: write` (the tag and
+  Release, via `GITHUB_TOKEN`). A `npm-publish` concurrency group serializes publishes and never
+  cancels one in progress.
 - It uses **npm Trusted Publishing (OIDC)** with provenance — there is **no `NPM_TOKEN`
-  secret**. The workflow needs `permissions.id-token: write`, and a Trusted Publisher must
-  be configured for the `glassnode-api` package on npmjs.com (repo
-  `glassnode/glassnode-api-ts-client`, workflow `publish.yml`).
+  secret**. The Trusted Publisher for `glassnode-api` on npmjs.com must name repo
+  `glassnode/glassnode-api-ts-client`, workflow `publish.yml` and environment `npm`.
+- The `npm` environment (Settings → Environments) must have the maintainer as required reviewer
+  and allow deployments from `main` only.
 - npm CLI `>= 11.5.1` performs the OIDC exchange, so the workflow installs the latest npm
   and publishes with `npm publish` (not `pnpm publish`, which uses the setup-node
   placeholder token and 404s). The setup-node `.npmrc` is overwritten before publishing so
   npm authenticates via OIDC instead of the placeholder token.
-- The workflow bumps the patch version and commits it (`[skip ci]`). You should still bump
-  `version` + `CHANGELOG.md` manually per the Versioning rules above for the substantive
-  change; CI adds the release patch bump on top.
+- The repo `.npmrc` sets `ignore-scripts=true`, so `npm publish` skips `prepublishOnly`: the
+  workflow runs `build` and `build:browser` itself. The `pnpm/action-setup` step sets
+  `npm_config_ignore_scripts: 'false'` because the standalone pnpm needs its own setup script.

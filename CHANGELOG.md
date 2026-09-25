@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.29.1
+
+- Release: the publish workflow now releases the `version` in `package.json` as is. It no longer
+  bumps the patch version or commits and pushes "Bump version [skip ci]" to `main`, which a
+  protected `main` would reject. If that version is already on npm (a merge without a bump, or a
+  re-run), it skips the publish with a notice in the job summary; only an npm 404 counts as "not
+  published", and any other registry or network error fails the job.
+- Release: the workflow runs the full CI check list first (`ci.yml`, now also a reusable
+  workflow), and the publish job runs in the `npm` GitHub environment, so it waits for a
+  maintainer's approval. After publishing it pushes a `v<version>` tag and creates a GitHub
+  Release from the version's `CHANGELOG.md` section. Permissions are per job; only the publish job
+  can write (`id-token` for npm Trusted Publishing, `contents` for the tag and Release), and
+  `packages: write` is gone. Publishes are serialized and never cancelled.
+- Docs: `CLAUDE.md` and `CONTRIBUTING.md` describe the new release flow. No change to the
+  published package.
+
 ## 0.29.0
 
 - License: relicensed from MIT to the Apache License 2.0 from this version on. Earlier published

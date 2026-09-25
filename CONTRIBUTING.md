@@ -3,8 +3,8 @@
 Thanks for helping improve the TypeScript client for the Glassnode API. This guide walks you
 through opening a pull request (PR).
 
-**Every merge to `main` publishes a new version to npm automatically**
-(`.github/workflows/publish.yml`), so nothing lands on `main` except through a reviewed PR.
+**A merge to `main` releases the `version` in `package.json` to npm once a maintainer approves
+the release** (`.github/workflows/publish.yml`). `main` only accepts changes through reviewed PRs.
 
 ## Prerequisites
 
@@ -58,8 +58,8 @@ describing it. Follow [semver](https://semver.org/):
 - **Minor**: new features, methods or config options that are backward compatible.
 - **Patch**: bug fixes, docs and internal refactors with no API change.
 
-The publish workflow adds its own patch bump on top when it releases, so the published version can
-be one patch higher than the one in your PR.
+The version in your PR is exactly the one that gets published: the release workflow does not bump
+it. A PR merged without a bump publishes nothing.
 
 ### 4. Run the full local check list
 
@@ -94,8 +94,12 @@ A good PR description says:
 
 ### 6. CI, review and merge
 
-CI must pass, and a maintainer reviews the PR. Once it is approved, a maintainer merges it, and
-the merge publishes the new version to npm.
+CI must pass, and a maintainer reviews the PR. Once it is approved, a maintainer merges it.
+
+The merge starts the release workflow. It re-runs the full CI check list, then its publish job
+waits for a maintainer to approve it (the `npm` environment). After the approval it publishes the
+new version to npm with provenance, tags the commit `v<version>` and creates a GitHub Release from
+your `CHANGELOG.md` entry. If that version is already on npm, the workflow skips the release.
 
 ## Contract fixtures
 
