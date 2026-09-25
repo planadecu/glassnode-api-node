@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.29.3
+
+- Package metadata: `package.json` `author.url` now points at the author's GitHub profile
+  (`https://github.com/planadecu`) instead of the old `planadecu/glassnode-api-node` repository.
+- Examples: `examples/.npmrc` now says accurately that it covers `ignore-scripts` only (npm ignores
+  the root's pnpm-only `minimum-release-age`) and how to apply the 7-day rule with npm
+  (`npm install --before=<date>`). `examples/README.md` recommends `npm ci`, as CI runs, notes that
+  install scripts are disabled, and shows how to add or update a dependency with `--before`.
+- Docs: `CLAUDE.md` now states that `main` is protected by a ruleset. No code change.
+
 ## 0.29.2
 
 - License: `LICENSE` is now the official Apache License 2.0 text, verbatim from
